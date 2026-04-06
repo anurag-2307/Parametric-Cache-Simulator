@@ -1,0 +1,143 @@
+[
+  {
+    "timestamp": "2026-04-05 09:41:17",
+    "trace_file": "/mnt/c/Users/anurp/os_cp/trace_rd.txt",
+    "trace_summary": "26.9L traces",
+    "config": {
+      "l1_size": "8192",
+      "l1_assoc": "1",
+      "l2_size": "262144",
+      "l2_assoc": "4",
+      "policy": "LRU",
+      "prefetch": "ON",
+      "trace_file": "/mnt/c/Users/anurp/os_cp/trace_rd.txt"
+    },
+    "sections": {
+      "Instruction Cache": {
+        "Total Accesses": "2077327",
+        "Reads": "2077327",
+        "Writes": "0",
+        "Cache Hits": "2061245",
+        "Cache Misses": "16082",
+        "Hit Rate": "99.2258 %",
+        "Miss Rate": "0.774168 %",
+        "AMAT": "4.23955"
+      },
+      "Data Cache": {
+        "Total Accesses": "729824",
+        "Reads": "533156",
+        "Writes": "196668",
+        "Cache Hits": "629723",
+        "Cache Misses": "100101",
+        "Hit Rate": "86.2842 %",
+        "Miss Rate": "13.7158 %",
+        "AMAT": "7.50155"
+      },
+      "Unified L2 Cache": {
+        "Total Accesses": "236028",
+        "Reads": "201355",
+        "Writes": "34673",
+        "Cache Hits": "221845",
+        "Cache Misses": "14183",
+        "Hit Rate": "93.991 %",
+        "Miss Rate": "6.00903 %",
+        "AMAT": "27.0181"
+      }
+    },
+    "modified": "10194"
+  },
+  {
+    "timestamp": "2026-04-05 09:41:56",
+    "trace_file": "/mnt/c/Users/anurp/os_cp/trace_rd.txt",
+    "trace_summary": "26.9L traces",
+    "config": {
+      "l1_size": "32768",
+      "l1_assoc": "2",
+      "l2_size": "524288",
+      "l2_assoc": "8",
+      "policy": "LRU",
+      "prefetch": "ON",
+      "trace_file": "/mnt/c/Users/anurp/os_cp/trace_rd.txt"
+    },
+    "sections": {
+      "Instruction Cache": {
+        "Total Accesses": "2077327",
+        "Reads": "2077327",
+        "Writes": "0",
+        "Cache Hits": "2075407",
+        "Cache Misses": "1920",
+        "Hit Rate": "99.9076 %",
+        "Miss Rate": "0.0924265 %",
+        "AMAT": "4.13036"
+      },
+      "Data Cache": {
+        "Total Accesses": "729824",
+        "Reads": "533156",
+        "Writes": "196668",
+        "Cache Hits": "713468",
+        "Cache Misses": "16356",
+        "Hit Rate": "97.7589 %",
+        "Miss Rate": "2.24109 %",
+        "AMAT": "5.77514"
+      },
+      "Unified L2 Cache": {
+        "Total Accesses": "37577",
+        "Reads": "33770",
+        "Writes": "3807",
+        "Cache Hits": "24907",
+        "Cache Misses": "12670",
+        "Hit Rate": "66.2826 %",
+        "Miss Rate": "33.7174 %",
+        "AMAT": "82.4349"
+      }
+    },
+    "modified": "10194"
+  },
+  {
+    "timestamp": "2026-04-06 06:54:55",
+    "trace_file": "/mnt/c/Users/anurp/os_cp/trace_rd.txt",
+    "trace_summary": "26.9L traces",
+    "config": {
+      "l1_size": "8192",
+      "l1_assoc": "1",
+      "l2_size": "262144",
+      "l2_assoc": "4",
+      "policy": "LRU",
+      "prefetch": "ON",
+      "trace_file": "/mnt/c/Users/anurp/os_cp/trace_rd.txt"
+    },
+    "sections": {
+      "Instruction Cache": {
+        "Total Accesses": "2077327",
+        "Reads": "2077327",
+        "Writes": "0",
+        "Cache Hits": "2061245",
+        "Cache Misses": "16082",
+        "Hit Rate": "99.2258 %",
+        "Miss Rate": "0.774168 %",
+        "AMAT": "4.23955"
+      },
+      "Data Cache": {
+        "Total Accesses": "729824",
+        "Reads": "533156",
+        "Writes": "196668",
+        "Cache Hits": "629723",
+        "Cache Misses": "100101",
+        "Hit Rate": "86.2842 %",
+        "Miss Rate": "13.7158 %",
+        "AMAT": "7.50155"
+      },
+      "Unified L2 Cache": {
+        "Total Accesses": "236028",
+        "Reads": "201355",
+        "Writes": "34673",
+        "Cache Hits": "221845",
+        "Cache Misses": "14183",
+        "Hit Rate": "93.991 %",
+        "Miss Rate": "6.00903 %",
+        "AMAT": "27.0181"
+      }
+    },
+    "modified": "10194"
+  }
+]
