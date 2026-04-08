@@ -2,6 +2,7 @@
 #include <vector>
 #include <cstdint>
 #include <queue>
+#include <cstdlib>
 #include "CacheSet.h"
 
 CacheSet::CacheSet(uint64_t associativity)
@@ -58,19 +59,27 @@ CacheSet::CacheSet(uint64_t associativity)
 } // end access function
 
 */
+AccessResult CacheSet::access(uint64_t tag, char type, int rplc){
+	AccessResult result = {false, false, 0};
+	
+	if( rplc == 1 ) result = access_fifo(tag, type, result);
+	else if( rplc == 2) result = access_lru(tag, type, result);
+	else{
+		std::cerr << "Incorrect Replacement Policy. Some glitch. Exiting program" << "\n";
+		exit(EXIT_FAILURE);
+	}
+	return result;
+}
 
 //=====================FIFO====================//
-AccessResult CacheSet::access_fifo(uint64_t tag, char type)
+AccessResult CacheSet::access_fifo(uint64_t tag, char type, AccessResult& result)
 { // Queue to store the tags
 
-	AccessResult result = {false, false, 0}; // AccessResult object.
 
 	bool found = false;
 	int way_hit = -1;
 	int way_empty = -1;
-	uint64_t max_lru = 0;
-	uint64_t way_lru = 0;
-
+	
 	for (uint64_t way = 0; way < associativity; way++)
 	{
 		if (ways[way].valid)
@@ -138,10 +147,8 @@ AccessResult CacheSet::access_fifo(uint64_t tag, char type)
 
 //============LRU=====================//
 // Scope operator to return struct AccessResult by function 'access'
-AccessResult CacheSet::access_lru(uint64_t tag, char type)
+AccessResult CacheSet::access_lru(uint64_t tag, char type, AccessResult& result)
 {
-
-	AccessResult result = {false, false, 0}; // AccessResult object.
 
 	bool found = false;
 	int way_hit = -1;

@@ -30,26 +30,25 @@ void 	Cache::address_split( uint64_t addr, uint64_t& tag, uint64_t& index ){
 	tag   = addr >> (offsetBits + indexBits);
 }//end address_split function
 
-uint64_t Cache::request_access(char type, uint64_t addr, int cache_identifier, uint32_t size) {
+uint64_t Cache::request_access(char type, uint64_t addr, int cache_identifier, uint32_t size, bool pf_en) {
     
-
     uint64_t total_latency = 0;
     uint64_t line_start = addr / blockSize;
     uint64_t line_end   = (addr + size - 1) / blockSize;
 
     if (line_start != line_end) {
     	split_accesses++;
-        total_latency += internal_lookup(type, addr, cache_identifier, size);
-        total_latency += internal_lookup(type, addr + size - 1, cache_identifier, size);
+        total_latency += internal_lookup(type, addr, cache_identifier, size, pf_en);
+        total_latency += internal_lookup(type, addr + size - 1, cache_identifier, size, pf_en);
     } else {
-        total_latency = internal_lookup(type, addr, cache_identifier, size);
+        total_latency = internal_lookup(type, addr, cache_identifier, size, pf_en);
     }
 
     this->total_cycles += total_latency;
     return total_latency;
 }
 
-uint64_t Cache::internal_lookup(char type, uint64_t addr, int cache_identifier, uint32_t size) {
+uint64_t Cache::internal_lookup(char type, uint64_t addr, int cache_identifier, uint32_t size, bool pf_en ) {
 
 	if (type == 'L' || type == 'I') reads++;
     if (type == 'S') writes++;
@@ -58,30 +57,49 @@ uint64_t Cache::internal_lookup(char type, uint64_t addr, int cache_identifier, 
     uint64_t tag, index;
     
     address_split(addr, tag, index);
-
     AccessResult res;
-    if (replacement_policy == 1) res = sets[index].access_fifo(tag, type);	
-    else if (replacement_policy == 2) res = sets[index].access_lru(tag, type);
-
+    res = sets[index].access(tag, type, replacement_policy);
+	
     if (res.is_hit) {
         hits++;
-    } else {
+    } // end if res.is_hit
+    else {
         misses++;
         if (next_level != nullptr) {
         	uint64_t block_aligned_addr = (addr / blockSize) * blockSize;
-            time_spent += next_level->request_access('L', block_aligned_addr, cache_identifier + 1, size);
-        } else {
+            time_spent += next_level->request_access('L', block_aligned_addr, cache_identifier + 1, size, pf_en);
+
+
+			if(pf_en){
+				uint64_t next_addr = block_aligned_addr + blockSize;
+				uint64_t next_tag, next_index;
+
+				address_split(next_addr, next_tag, next_index);
+				AccessResult prefetch_res = sets[next_index].access(next_tag, 'L', replacement_policy);
+
+				if( !prefetch_res.is_hit ){
+					next_level->request_access('L', next_addr, cache_identifier+1, size,pf_en);	
+				} // end not prefetch not hit
+
+	            if( prefetch_res.evicted_dirty ){
+	            	writebacks++;
+	            	uint64_t prefetch_new_addr = (prefetch_res.evicted_addr << (indexBits + offsetBits)) | (next_index << offsetBits);
+	            	next_level->request_access('S', prefetch_new_addr, 2, blockSize, pf_en);
+	            } // end prefetch evicted_dirty
+            }//end prefetch_enable
+        } //end if
+        else {
             time_spent += MAIN_MEMORY_LATENCY;
-        }
-    }
+        } //end else
+    } //end else
 
     if (res.evicted_dirty) {
         writebacks++;
         if (next_level != nullptr) {
             uint64_t new_addr = (res.evicted_addr << (indexBits + offsetBits)) | (index << offsetBits);
-            next_level->request_access('S', new_addr, 2, blockSize);
-        }
-    }
+            next_level->request_access('S', new_addr, 2, blockSize, pf_en);
+        } //end if
+    }//end if
 
     return time_spent;
 }
@@ -104,5 +122,8 @@ void	Cache::print_stats( ){
         std::cout << "AMAT	       : " <<  static_cast<double> (this->total_cycles) / total_accesses << "\n";
     }
     std::cout << "Split Accesses : " << split_accesses << "\n";
+	std::cout << "\nReplacement Policy used : ";
+	if		( replacement_policy == 1 ) std::cout << "FIFO" << "\n";
+	else if	( replacement_policy == 2 ) std::cout << "LRU" << "\n";
 	std::cout << "====================================================================\n";
 }//end print_stats()

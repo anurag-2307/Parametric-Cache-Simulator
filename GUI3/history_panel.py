@@ -239,6 +239,7 @@ class RunCard(QWidget):
 class HistoryPanel(QWidget):
     run_selected      = pyqtSignal(dict)
     compare_requested = pyqtSignal(dict, dict)
+    history_cleared   = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -476,3 +477,4 @@ class HistoryPanel(QWidget):
             self._pinned_id   = None
             self._compare_banner.setVisible(False)
             self.refresh()
+            self.history_cleared.emit()

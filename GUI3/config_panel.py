@@ -72,8 +72,7 @@ class SettingBlock(QWidget):
 class TraceDropZone(QWidget):
     """
     Accepts drag-and-drop or Browse button to select a trace file.
-    File dialog is opened as a blocking non-native dialog to avoid
-    the platform re-open bug.
+    Uses the native platform file dialog for stable behavior.
     """
     file_selected = pyqtSignal(str)
 
@@ -83,7 +82,6 @@ class TraceDropZone(QWidget):
         self.setMinimumHeight(100)
         self.setMaximumHeight(100)
         self._file_path    = ""
-        self._dialog_open  = False   # guard against re-entrancy
         self._build_ui()
         self._refresh_style()
 
@@ -163,33 +161,37 @@ class TraceDropZone(QWidget):
 
     # ── Browse dialog ──────────────────────────────────────────────────────
     def _open_dialog(self):
-        # Guard: don't open a second dialog if one is already open
-        if self._dialog_open:
-            return
-        self._dialog_open = True
+        start = (
+            os.path.dirname(self._file_path)
+            if self._file_path else os.path.expanduser("~")
+        )
 
-        try:
-            start = (
-                os.path.dirname(self._file_path)
-                if self._file_path else os.path.expanduser("~")
-            )
+        # Prefer native dialog: avoids stylesheet/palette artifacts.
+        selected, _ = QFileDialog.getOpenFileName(
+            self.window(),
+            "Select Trace File",
+            start,
+            "Trace files (*.txt *.trace *.trc);;All files (*.*)",
+            "Trace files (*.txt *.trace *.trc)",
+        )
 
-            # Use a QFileDialog object (not the static helper) with
-            # DontUseNativeDialog to prevent platform re-open bugs
-            dlg = QFileDialog(self, "Select Trace File", start)
+        # Fallback path for environments where native dialog is unavailable.
+        if not selected:
+            dlg = QFileDialog(self.window(), "Select Trace File", start)
             dlg.setFileMode(QFileDialog.FileMode.ExistingFile)
             dlg.setNameFilters([
                 "Trace files (*.txt *.trace *.trc)",
                 "All files (*.*)",
             ])
             dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
-
+            dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
             if dlg.exec() == QFileDialog.DialogCode.Accepted:
                 files = dlg.selectedFiles()
                 if files:
-                    self._accept_file(files[0])
-        finally:
-            self._dialog_open = False
+                    selected = files[0]
+
+        if selected:
+            self._accept_file(selected)
 
     def _accept_file(self, path: str):
         if os.path.isfile(path):
@@ -511,4 +513,10 @@ class ConfigPanel(QWidget):
         self._l2_assoc.set_value(str(cfg.get("l2_assoc", 16)))
         self._policy.set_value(cfg.get("policy",   "LRU"))
         self._prefetch.set_value(cfg.get("prefetch", "ON"))
+        self._update_cmd_preview()
+
+    def reset_for_new_session(self):
+        self._trace_path = ""
+        self._status_lbl.setText("")
+        self._drop_zone.clear()
         self._update_cmd_preview()

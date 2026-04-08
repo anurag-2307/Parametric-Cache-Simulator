@@ -253,6 +253,8 @@ def clear_all_runs() -> int:
     """Wipe the entire history. Returns number of rows deleted."""
     with _connect() as conn:
         cursor = conn.execute("DELETE FROM runs")
+        # Reset autoincrement so run IDs restart from 1 after clear.
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'runs'")
         conn.commit()
         return cursor.rowcount
 

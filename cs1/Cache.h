@@ -30,7 +30,7 @@ class Cache{
 		uint64_t	total_cycles			=	0;
 		uint64_t  	split_accesses			=	0;
 		//=========================================//
-	
+
 		int		 	cache_identifier		=	0;
 		int			replacement_policy		=	0;
 		Cache* next_level;				//point to the next level L1->L2->L3->main memory
@@ -50,8 +50,8 @@ class Cache{
 				int replacement_policy	
 			  );
 
-		uint64_t	request_access	( char type, uint64_t addr, int cache_identifier, uint32_t size );
-		uint64_t 	internal_lookup	( char type, uint64_t addr, int cache_identifier, uint32_t size );
+		uint64_t	request_access	( char type, uint64_t addr, int cache_identifier, uint32_t size, bool pf_en );
+		uint64_t 	internal_lookup	( char type, uint64_t addr, int cache_identifier, uint32_t size, bool pf_en );
 
 		void		print_stats( );
 		

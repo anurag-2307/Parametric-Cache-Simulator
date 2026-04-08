@@ -23,11 +23,13 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QTabWidget, QFrame,
     QScrollArea, QSizePolicy, QSpacerItem,
+    QDialog, QDialogButtonBox, QComboBox, QMessageBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont, QColor, QImage, QPixmap
 
 from theme import COLOR, FONT_SIZE, MPL_STYLE, GRAPH_COLORS
+import database as db
 
 
 # ── Apply matplotlib theme once ───────────────────────────────────────────────
@@ -251,6 +253,72 @@ def _make_canvas(fig: Figure) -> FigureCanvas:
     return canvas
 
 
+def _run_display_name(run: dict) -> str:
+    return f"Run #{run.get('id', '?')}"
+
+
+def _attach_chart_interactions(canvas: FigureCanvas, parent: QWidget, scroll: QScrollArea | None = None):
+    # Click inside plot area enlarges chart into a modal preview dialog.
+    def _on_click(event):
+        if event.inaxes is None:
+            return
+        _show_chart_preview(canvas, parent)
+
+    canvas.mpl_connect("button_press_event", _on_click)
+
+    if scroll is not None:
+        # Preserve wheel scrolling in scroll areas while keeping click events enabled.
+        def _wheel(ev):
+            dy = ev.angleDelta().y()
+            if dy:
+                sb = scroll.verticalScrollBar()
+                sb.setValue(sb.value() - dy)
+                ev.accept()
+                return
+            QWidget.wheelEvent(canvas, ev)
+
+        canvas.wheelEvent = _wheel
+
+
+def _show_chart_preview(canvas: FigureCanvas, parent: QWidget):
+    canvas.draw()
+    buf = canvas.buffer_rgba()
+    w, h = canvas.get_width_height()
+    image = QImage(buf, w, h, QImage.Format.Format_RGBA8888)
+    pixmap = QPixmap.fromImage(image)
+
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Chart Preview")
+    dlg.resize(1000, 620)
+    dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dlg.setWindowModality(Qt.WindowModality.NonModal)
+    dlg.setStyleSheet(
+        f"background-color: {COLOR['bg_deep']};"
+        f"color: {COLOR['text_primary']};"
+    )
+
+    lay = QVBoxLayout(dlg)
+    lay.setContentsMargins(12, 12, 12, 12)
+
+    lbl = QLabel()
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    lbl.setPixmap(pixmap)
+    lbl.setScaledContents(False)
+    lay.addWidget(lbl, 1)
+
+    # Keep a reference so Python doesn't GC the non-modal dialog.
+    previews = getattr(parent, "_chart_previews", None)
+    if previews is None:
+        previews = []
+        setattr(parent, "_chart_previews", previews)
+    previews.append(dlg)
+    dlg.destroyed.connect(lambda *_: previews.remove(dlg) if dlg in previews else None)
+
+    dlg.show()
+    dlg.raise_()
+    dlg.activateWindow()
+
+
 def _hit_miss_bar_chart(metrics: dict) -> FigureCanvas:
     """Grouped bar chart: hits vs misses for each cache level."""
     fig, ax = plt.subplots(figsize=(5.2, 3.4))
@@ -408,15 +476,13 @@ def _miss_rate_chart(metrics: dict) -> FigureCanvas:
 
     caches   = ["I-Cache", "D-Cache", "L2 Cache"]
     keys     = ["i_cache", "d_cache", "l2_cache"]
-    colors_h = [COLOR["accent"], COLOR["accent_green"], COLOR["accent_purple"]]
-
     hit_rates  = [metrics.get(k, {}).get("hit_rate",  0) for k in keys]
     miss_rates = [metrics.get(k, {}).get("miss_rate", 0) for k in keys]
 
     x     = np.arange(len(caches))
     width = 0.5
 
-    ax.bar(x, hit_rates,  width, label="Hit %",  color=colors_h,               alpha=0.85, zorder=3)
+    ax.bar(x, hit_rates,  width, label="Hit %",  color=COLOR["accent"],        alpha=0.85, zorder=3)
     ax.bar(x, miss_rates, width, label="Miss %", color=COLOR["accent_red"],    alpha=0.6,  zorder=3,
            bottom=hit_rates)
 
@@ -439,6 +505,77 @@ def _miss_rate_chart(metrics: dict) -> FigureCanvas:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _compare_hit_rate_chart(run_a: dict, run_b: dict) -> FigureCanvas:
+    return _compare_metric_chart(
+        run_a, run_b,
+        metric_key="hit_rate",
+        title="Hit Rate Comparison",
+        y_label="Hit Rate (%)",
+        percent=True,
+    )
+
+
+def _compare_amat_chart(run_a: dict, run_b: dict) -> FigureCanvas:
+    return _compare_metric_chart(
+        run_a, run_b,
+        metric_key="amat",
+        title="AMAT Comparison",
+        y_label="AMAT (cycles)",
+        percent=False,
+    )
+
+
+def _compare_miss_rate_chart(run_a: dict, run_b: dict) -> FigureCanvas:
+    return _compare_metric_chart(
+        run_a, run_b,
+        metric_key="miss_rate",
+        title="Miss Rate Comparison",
+        y_label="Miss Rate (%)",
+        percent=True,
+    )
+
+
+def _compare_total_accesses_chart(run_a: dict, run_b: dict) -> FigureCanvas:
+    return _compare_metric_chart(
+        run_a, run_b,
+        metric_key="total_accesses",
+        title="Total Accesses Comparison",
+        y_label="Access Count",
+        percent=False,
+        count_axis=True,
+    )
+
+
+def _compare_cache_hits_chart(run_a: dict, run_b: dict) -> FigureCanvas:
+    return _compare_metric_chart(
+        run_a, run_b,
+        metric_key="cache_hits",
+        title="Cache Hits Comparison",
+        y_label="Hit Count",
+        percent=False,
+        count_axis=True,
+    )
+
+
+def _compare_cache_misses_chart(run_a: dict, run_b: dict) -> FigureCanvas:
+    return _compare_metric_chart(
+        run_a, run_b,
+        metric_key="cache_misses",
+        title="Cache Misses Comparison",
+        y_label="Miss Count",
+        percent=False,
+        count_axis=True,
+    )
+
+
+def _compare_metric_chart(
+    run_a: dict,
+    run_b: dict,
+    metric_key: str,
+    title: str,
+    y_label: str,
+    percent: bool,
+    count_axis: bool = False,
+) -> FigureCanvas:
     fig, ax = plt.subplots(figsize=(6.5, 3.8))
     fig.patch.set_facecolor(COLOR["bg_card"])
     ax.set_facecolor(COLOR["bg_elevated"])
@@ -449,8 +586,8 @@ def _compare_hit_rate_chart(run_a: dict, run_b: dict) -> FigureCanvas:
     ma = run_a.get("metrics", {})
     mb = run_b.get("metrics", {})
 
-    rates_a = [ma.get(k, {}).get("hit_rate", 0) for k in keys]
-    rates_b = [mb.get(k, {}).get("hit_rate", 0) for k in keys]
+    vals_a = [ma.get(k, {}).get(metric_key, 0) for k in keys]
+    vals_b = [mb.get(k, {}).get(metric_key, 0) for k in keys]
 
     x     = np.arange(len(caches))
     width = 0.32
@@ -458,55 +595,30 @@ def _compare_hit_rate_chart(run_a: dict, run_b: dict) -> FigureCanvas:
     la = run_a.get("label", "Run A")[:22]
     lb = run_b.get("label", "Run B")[:22]
 
-    ax.bar(x - width/2, rates_a, width, label=la, color=COLOR["accent"],       alpha=0.85, zorder=3)
-    ax.bar(x + width/2, rates_b, width, label=lb, color=COLOR["accent_amber"], alpha=0.85, zorder=3)
+    ax.bar(x - width/2, vals_a, width, label=la, color=COLOR["accent"],       alpha=0.85, zorder=3)
+    ax.bar(x + width/2, vals_b, width, label=lb, color=COLOR["accent_amber"], alpha=0.85, zorder=3)
 
     ax.set_xticks(x)
     ax.set_xticklabels(caches)
-    ax.set_ylim(0, 110)
-    ax.set_ylabel("Hit Rate (%)", fontsize=9)
-    ax.set_title("Hit Rate Comparison", fontsize=11, pad=10)
+    if percent:
+        ax.set_ylim(0, 110)
+    ax.set_ylabel(y_label, fontsize=9)
+    ax.set_title(title, fontsize=11, pad=10)
+
+    if count_axis:
+        ax.yaxis.set_major_formatter(
+            matplotlib.ticker.FuncFormatter(
+                lambda v, _: f"{v/1e6:.1f}M" if v >= 1e6
+                else f"{v/1e3:.0f}K" if v >= 1e3
+                else str(int(v))
+            )
+        )
     ax.legend(framealpha=0.2)
     ax.grid(axis="y", alpha=0.3, zorder=0)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
     fig.tight_layout(pad=1.2)
-    return _make_canvas(fig)
-
-
-def _compare_amat_chart(run_a: dict, run_b: dict) -> FigureCanvas:
-    fig, ax = plt.subplots(figsize=(6.5, 3.8))
-    fig.patch.set_facecolor(COLOR["bg_card"])
-    ax.set_facecolor(COLOR["bg_elevated"])
-
-    caches = ["I-Cache", "D-Cache", "L2 Cache"]
-    keys   = ["i_cache", "d_cache", "l2_cache"]
-
-    ma = run_a.get("metrics", {})
-    mb = run_b.get("metrics", {})
-
-    amats_a = [ma.get(k, {}).get("amat", 0) for k in keys]
-    amats_b = [mb.get(k, {}).get("amat", 0) for k in keys]
-
-    x     = np.arange(len(caches))
-    width = 0.32
-
-    la = run_a.get("label", "Run A")[:22]
-    lb = run_b.get("label", "Run B")[:22]
-
-    ax.bar(x - width/2, amats_a, width, label=la, color=COLOR["accent"],       alpha=0.85, zorder=3)
-    ax.bar(x + width/2, amats_b, width, label=lb, color=COLOR["accent_amber"], alpha=0.85, zorder=3)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(caches)
-    ax.set_ylabel("AMAT (cycles)", fontsize=9)
-    ax.set_title("AMAT Comparison", fontsize=11, pad=10)
-    ax.legend(framealpha=0.2)
-    ax.grid(axis="y", alpha=0.3, zorder=0)
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-
     fig.tight_layout(pad=1.2)
     return _make_canvas(fig)
 
@@ -647,24 +759,24 @@ class VisualMetricsTab(QWidget):
         # Row 1: hit/miss bar + hit rate bar
         row1 = QHBoxLayout()
         row1.setSpacing(14)
-        row1.addWidget(self._chart_card(_hit_miss_bar_chart(metrics),  "Hits vs Misses"))
-        row1.addWidget(self._chart_card(_hit_rate_bar_chart(metrics),  "Hit Rate (%)"))
+        row1.addWidget(self._chart_card(_hit_miss_bar_chart(metrics),  "Hits vs Misses", scroll))
+        row1.addWidget(self._chart_card(_hit_rate_bar_chart(metrics),  "Hit Rate (%)", scroll))
         lay.addLayout(row1)
 
         # Row 2: AMAT + miss rate breakdown
         row2 = QHBoxLayout()
         row2.setSpacing(14)
-        row2.addWidget(self._chart_card(_amat_chart(metrics),       "AMAT per Cache"))
-        row2.addWidget(self._chart_card(_miss_rate_chart(metrics),  "Hit/Miss Stacked"))
+        row2.addWidget(self._chart_card(_amat_chart(metrics),       "AMAT per Cache", scroll))
+        row2.addWidget(self._chart_card(_miss_rate_chart(metrics),  "Hit/Miss Stacked", scroll))
         lay.addLayout(row2)
 
         # Row 3: full-width traffic pie
-        lay.addWidget(self._chart_card(_traffic_pie_chart(metrics), "Read/Write Traffic", full=True))
+        lay.addWidget(self._chart_card(_traffic_pie_chart(metrics), "Read/Write Traffic", scroll, full=True))
 
         lay.addStretch()
         scroll.setWidget(inner)
 
-    def _chart_card(self, canvas: FigureCanvas, title: str, full: bool = False) -> QWidget:
+    def _chart_card(self, canvas: FigureCanvas, title: str, scroll: QScrollArea, full: bool = False) -> QWidget:
         card = QWidget()
         card.setStyleSheet(
             f"background-color: {COLOR['bg_card']};"
@@ -684,6 +796,7 @@ class VisualMetricsTab(QWidget):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
+        _attach_chart_interactions(canvas, self, scroll)
         lay.addWidget(canvas)
         return card
 
@@ -699,72 +812,35 @@ class CompareTab(QWidget):
         self._build(run_a, run_b)
 
     def _build(self, run_a: dict, run_b: dict):
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("background: transparent; border: none;")
-
         outer_lay = QVBoxLayout(self)
         outer_lay.setContentsMargins(0, 0, 0, 0)
-        outer_lay.addWidget(scroll)
+        outer_lay.setSpacing(0)
 
-        inner = QWidget()
-        inner.setStyleSheet("background: transparent;")
-        lay = QVBoxLayout(inner)
-        lay.setContentsMargins(24, 20, 24, 24)
-        lay.setSpacing(18)
-
-        # ── Run headers ────────────────────────────────────────────────────
-        hdr = QHBoxLayout()
+        # Fixed run headers: always visible while tab contents scroll.
+        header_wrap = QWidget()
+        header_wrap.setFixedHeight(78)
+        header_wrap.setStyleSheet(
+            f"background-color: {COLOR['bg_deep']};"
+            f"border-bottom: 1px solid {COLOR['border_faint']};"
+        )
+        hdr = QHBoxLayout(header_wrap)
+        hdr.setContentsMargins(24, 12, 24, 12)
         hdr.setSpacing(14)
-        hdr.addWidget(self._run_header(run_a, COLOR["accent"]))
-        hdr.addWidget(self._run_header(run_b, COLOR["accent_amber"]))
-        lay.addLayout(hdr)
+        hdr.addWidget(self._run_header(run_a))
+        hdr.addWidget(self._run_header(run_b))
+        outer_lay.addWidget(header_wrap)
 
-        # ── Side-by-side stat tables ────────────────────────────────────────
-        for cache_name, key in [
-            ("I-Cache",  "i_cache"),
-            ("D-Cache",  "d_cache"),
-            ("L2 Cache", "l2_cache"),
-        ]:
-            row = QHBoxLayout()
-            row.setSpacing(14)
-            row.addWidget(CacheCard(cache_name, run_a.get("metrics", {}).get(key, {})))
-            row.addWidget(CacheCard(cache_name, run_b.get("metrics", {}).get(key, {})))
-            lay.addLayout(row)
+        tabs = QTabWidget()
+        tabs.addTab(self._build_detailed_compare_tab(run_a, run_b), "Detailed Metrics")
+        tabs.addTab(self._build_visual_compare_tab(run_a, run_b), "Visual Metrics")
+        outer_lay.addWidget(tabs, 1)
 
-        # ── Comparison charts ───────────────────────────────────────────────
-        charts_row = QHBoxLayout()
-        charts_row.setSpacing(14)
-
-        for canvas, title in [
-            (_compare_hit_rate_chart(run_a, run_b), "Hit Rate Comparison"),
-            (_compare_amat_chart(run_a, run_b),     "AMAT Comparison"),
-        ]:
-            card = QWidget()
-            card.setStyleSheet(
-                f"background-color: {COLOR['bg_card']};"
-                f"border: 1px solid {COLOR['border_faint']};"
-                f"border-radius: 10px;"
-            )
-            card.setMinimumHeight(300)
-            c_lay = QVBoxLayout(card)
-            c_lay.setContentsMargins(14, 12, 14, 12)
-            canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            c_lay.addWidget(canvas)
-            charts_row.addWidget(card)
-
-        lay.addLayout(charts_row)
-        lay.addStretch()
-        scroll.setWidget(inner)
-
-    def _run_header(self, run: dict, accent: str) -> QWidget:
+    def _run_header(self, run: dict) -> QWidget:
         w = QWidget()
         w.setFixedHeight(64)
         w.setStyleSheet(
             f"background-color: {COLOR['bg_card']};"
             f"border: 1px solid {COLOR['border_faint']};"
-            f"border-left: 3px solid {accent};"
             f"border-radius: 8px;"
         )
         lay = QHBoxLayout(w)
@@ -772,7 +848,13 @@ class CompareTab(QWidget):
 
         vlay = QVBoxLayout()
         vlay.setSpacing(3)
-        name = _label(run.get("label", "Run"), FONT_SIZE["sm"], accent, bold=True)
+        cfg = (
+            f"L1:{run.get('l1_size', 0)//1024 if run.get('l1_size', 0) >= 1024 else run.get('l1_size', 0)}"
+            f"K/{run.get('l1_assoc', '?')}w  "
+            f"L2:{run.get('l2_size', 0)//1048576 if run.get('l2_size', 0) >= 1048576 else run.get('l2_size', 0)}"
+            f"M/{run.get('l2_assoc', '?')}w"
+        )
+        name = _label(f"{_run_display_name(run)}  —  {cfg}", FONT_SIZE["sm"], COLOR["text_primary"], bold=True)
         name.setWordWrap(True)
         vlay.addWidget(name)
 
@@ -788,6 +870,108 @@ class CompareTab(QWidget):
         lay.addWidget(ts)
         return w
 
+    def _build_detailed_compare_tab(self, run_a: dict, run_b: dict) -> QWidget:
+        tab = QWidget()
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea(tab)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        outer.addWidget(scroll)
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(inner)
+        lay.setContentsMargins(24, 16, 24, 24)
+        lay.setSpacing(16)
+
+        for cache_name, key in [
+            ("I-Cache",  "i_cache"),
+            ("D-Cache",  "d_cache"),
+            ("L2 Cache", "l2_cache"),
+        ]:
+            row = QHBoxLayout()
+            row.setSpacing(14)
+            row.addWidget(CacheCard(cache_name, run_a.get("metrics", {}).get(key, {})))
+            row.addWidget(CacheCard(cache_name, run_b.get("metrics", {}).get(key, {})))
+            lay.addLayout(row)
+
+        lay.addStretch()
+        scroll.setWidget(inner)
+        return tab
+
+    def _build_visual_compare_tab(self, run_a: dict, run_b: dict) -> QWidget:
+        tab = QWidget()
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea(tab)
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("background: transparent; border: none;")
+        outer.addWidget(scroll)
+
+        inner = QWidget()
+        inner.setStyleSheet("background: transparent;")
+        lay = QVBoxLayout(inner)
+        lay.setContentsMargins(24, 16, 24, 24)
+        lay.setSpacing(14)
+
+        row1 = QHBoxLayout()
+        row1.setSpacing(14)
+        row1.addWidget(self._chart_card(_compare_hit_rate_chart(run_a, run_b), scroll))
+        row1.addWidget(self._chart_card(_compare_miss_rate_chart(run_a, run_b), scroll))
+        lay.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.setSpacing(14)
+        row2.addWidget(self._chart_card(_compare_amat_chart(run_a, run_b), scroll))
+        row2.addWidget(self._chart_card(_compare_total_accesses_chart(run_a, run_b), scroll))
+        lay.addLayout(row2)
+
+        row3 = QHBoxLayout()
+        row3.setSpacing(14)
+        row3.addWidget(self._chart_card(_compare_cache_hits_chart(run_a, run_b), scroll))
+        row3.addWidget(self._chart_card(_compare_cache_misses_chart(run_a, run_b), scroll))
+        lay.addLayout(row3)
+
+        lay.addStretch()
+        scroll.setWidget(inner)
+        return tab
+
+    def _chart_card(self, canvas: FigureCanvas, scroll: QScrollArea) -> QWidget:
+        card = QWidget()
+        card.setStyleSheet(
+            f"background-color: {COLOR['bg_card']};"
+            f"border: 1px solid {COLOR['border_faint']};"
+            f"border-radius: 10px;"
+        )
+        card.setMinimumHeight(300)
+        c_lay = QVBoxLayout(card)
+        c_lay.setContentsMargins(14, 12, 14, 12)
+        canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        _attach_chart_interactions(canvas, self, scroll)
+        c_lay.addWidget(canvas)
+        return card
+
+
+class SingleRunTab(QWidget):
+    """Per-run tab that keeps both detailed and visual metrics available."""
+    def __init__(self, run: dict, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        tabs = QTabWidget()
+        tabs.addTab(DetailedMetricsTab(run), "Detailed Metrics")
+        tabs.addTab(VisualMetricsTab(run),   "Visual Metrics")
+        lay.addWidget(tabs)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main Results Panel
@@ -799,6 +983,7 @@ class ResultsPanel(QWidget):
     and a top bar with the run label + "New Simulation" back button.
     """
     new_simulation_requested = pyqtSignal()
+    compare_runs_requested   = pyqtSignal(dict, dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -828,6 +1013,14 @@ class ResultsPanel(QWidget):
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self.new_simulation_requested.emit)
         tb_lay.addWidget(back_btn)
+
+        self._compare_btn = QPushButton("Compare Runs")
+        self._compare_btn.setObjectName("ghostBtn")
+        self._compare_btn.setFont(QFont("DM Sans", FONT_SIZE["sm"]))
+        self._compare_btn.setFixedHeight(32)
+        self._compare_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._compare_btn.clicked.connect(self._open_compare_picker)
+        tb_lay.addWidget(self._compare_btn)
 
         self._run_label = _label(
             "Simulation Results", FONT_SIZE["md"],
@@ -883,19 +1076,108 @@ class ResultsPanel(QWidget):
         self._trace_lbl.setText(
             f"📄 {result.get('trace_filename','—')}  ·  {result.get('trace_summary','')}"
         )
+        self._sync_compare_button_state()
         self._populate_tabs(result)
 
     def show_comparison(self, run_a: dict, run_b: dict):
         """Load a side-by-side comparison of two runs."""
         self._run_label.setText("Comparison View")
         self._trace_lbl.setText("")
+        self._sync_compare_button_state()
         self._tabs.clear()
 
         self._tabs.addTab(CompareTab(run_a, run_b), "⚖  Compare")
-        self._tabs.addTab(DetailedMetricsTab(run_a), f"Run A — {run_a.get('label','')[:24]}")
-        self._tabs.addTab(DetailedMetricsTab(run_b), f"Run B — {run_b.get('label','')[:24]}")
+        self._tabs.addTab(SingleRunTab(run_a), f"Run A — {_run_display_name(run_a)}")
+        self._tabs.addTab(SingleRunTab(run_b), f"Run B — {_run_display_name(run_b)}")
 
     def _populate_tabs(self, result: dict):
         self._tabs.clear()
         self._tabs.addTab(DetailedMetricsTab(result), "📊  Detailed Metrics")
         self._tabs.addTab(VisualMetricsTab(result),   "📈  Visual Metrics")
+
+    def show_empty_state(self):
+        self._current_result = None
+        self._run_label.setText("No Saved Runs")
+        self._trace_lbl.setText("")
+        self._sync_compare_button_state()
+        self._tabs.clear()
+
+        empty = QWidget()
+        lay = QVBoxLayout(empty)
+        lay.setContentsMargins(30, 30, 30, 30)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        msg = QLabel("No simulations saved in history.\nRun a new simulation to populate results.")
+        msg.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        msg.setFont(QFont("Inter", FONT_SIZE["md"]))
+        msg.setStyleSheet(f"color: {COLOR['text_muted']}; background: transparent;")
+        lay.addWidget(msg)
+
+        self._tabs.addTab(empty, "📊  Detailed Metrics")
+
+    def _sync_compare_button_state(self):
+        self._compare_btn.setEnabled(db.get_run_count() >= 2)
+
+    def _open_compare_picker(self):
+        runs = db.get_all_runs()
+        if len(runs) < 2:
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Compare Runs")
+        dlg.setMinimumWidth(360)
+        dlg.setStyleSheet(
+            f"background-color: {COLOR['bg_card']};"
+            f"color: {COLOR['text_primary']};"
+        )
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        lbl = QLabel("Select two runs to compare")
+        lbl.setFont(QFont("Inter", FONT_SIZE["sm"], QFont.Weight.Medium))
+        lbl.setStyleSheet(f"color: {COLOR['text_primary']}; background: transparent;")
+        lay.addWidget(lbl)
+
+        combo_a = QComboBox()
+        combo_b = QComboBox()
+        combo_a.setFont(QFont("Inter", FONT_SIZE["sm"]))
+        combo_b.setFont(QFont("Inter", FONT_SIZE["sm"]))
+
+        for run in runs:
+            text = f"Run #{run['id']}  -  {run.get('trace_filename','—')}"
+            combo_a.addItem(text, run["id"])
+            combo_b.addItem(text, run["id"])
+
+        if combo_b.count() > 1:
+            combo_b.setCurrentIndex(1)
+
+        lay.addWidget(QLabel("Run A"))
+        lay.addWidget(combo_a)
+        lay.addWidget(QLabel("Run B"))
+        lay.addWidget(combo_b)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
+        )
+        lay.addWidget(buttons)
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        id_a = combo_a.currentData()
+        id_b = combo_b.currentData()
+        if id_a == id_b:
+            QMessageBox.warning(self, "Compare Runs", "Please choose two different runs.")
+            return
+
+        run_a = db.get_run_by_id(int(id_a))
+        run_b = db.get_run_by_id(int(id_b))
+        if not run_a or not run_b:
+            QMessageBox.warning(self, "Compare Runs", "Unable to load selected runs.")
+            return
+
+        self.compare_runs_requested.emit(run_a, run_b)

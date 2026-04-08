@@ -24,7 +24,9 @@ class CacheSet{
 	public:
 		CacheSet( uint64_t associativity );
 
-		AccessResult	access_lru( uint64_t tag, char type );
+		AccessResult 	access( uint64_t tag, char type, int rplc );
 
-		AccessResult	access_fifo( uint64_t tag, char type );
+		AccessResult	access_lru( uint64_t tag, char type, AccessResult& result );
+
+		AccessResult	access_fifo( uint64_t tag, char type, AccessResult& result );
 };//end class CacheSet

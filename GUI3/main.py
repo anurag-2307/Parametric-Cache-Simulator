@@ -58,6 +58,9 @@ class SimWorker(QObject):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class TitleBar(QWidget):
+    config_clicked  = pyqtSignal()
+    results_clicked = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(48)
@@ -102,17 +105,21 @@ class TitleBar(QWidget):
         # Screen indicator pills
         self._pill_config  = self._make_pill("Configure")
         self._pill_results = self._make_pill("Results", active=False)
+        self._pill_config.clicked.connect(self.config_clicked.emit)
+        self._pill_results.clicked.connect(self.results_clicked.emit)
         lay.addWidget(self._pill_config)
         lay.addWidget(self._pill_results)
 
-    def _make_pill(self, text: str, active: bool = True) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setFont(QFont("DM Sans", FONT_SIZE["xs"]))
-        lbl.setContentsMargins(10, 3, 10, 3)
-        self._set_pill_style(lbl, active)
-        return lbl
+    def _make_pill(self, text: str, active: bool = True) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setFont(QFont("DM Sans", FONT_SIZE["xs"]))
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFixedHeight(32)
+        btn.setStyleSheet("padding: 0 12px;")
+        self._set_pill_style(btn, active)
+        return btn
 
-    def _set_pill_style(self, lbl: QLabel, active: bool):
+    def _set_pill_style(self, lbl: QPushButton, active: bool):
         if active:
             lbl.setStyleSheet(
                 f"color: {COLOR['accent']};"
@@ -218,6 +225,7 @@ class MainWindow(QMainWindow):
 
         # History panel (always visible)
         self._history_panel = HistoryPanel()
+        self._history_panel.setVisible(False)
         body_lay.addWidget(self._history_panel)
 
         root_lay.addWidget(body, 1)
@@ -229,6 +237,11 @@ class MainWindow(QMainWindow):
 
         # Results panel → back to config
         self._results_panel.new_simulation_requested.connect(self._show_config)
+        self._results_panel.compare_runs_requested.connect(self._on_compare_requested)
+
+        # Title bar pills
+        self._title_bar.config_clicked.connect(self._show_config)
+        self._title_bar.results_clicked.connect(self._show_results_from_tab)
 
         # History panel → load a past run into results
         self._history_panel.run_selected.connect(self._on_history_run_selected)
@@ -236,10 +249,14 @@ class MainWindow(QMainWindow):
         # History panel → compare two runs
         self._history_panel.compare_requested.connect(self._on_compare_requested)
 
+        # History panel → hard reset app view after clear
+        self._history_panel.history_cleared.connect(self._on_history_cleared)
+
     # ── Screen transitions ─────────────────────────────────────────────────
     def _show_config(self):
         self._stack.setCurrentIndex(self.SCREEN_CONFIG)
         self._title_bar.set_screen("config")
+        self._history_panel.setVisible(False)
         self._config_panel.set_running(False)
         self._title_bar.clear_status()
         _fade_transition(self._config_panel)
@@ -247,7 +264,25 @@ class MainWindow(QMainWindow):
     def _show_results(self):
         self._stack.setCurrentIndex(self.SCREEN_RESULTS)
         self._title_bar.set_screen("results")
+        self._history_panel.setVisible(True)
         _fade_transition(self._results_panel)
+
+    def _show_results_from_tab(self):
+        import database as db
+
+        runs = db.get_all_runs(limit=1)
+        if runs:
+            latest = runs[0]
+            self._history_panel.set_current_run(latest)
+            self._results_panel.show_result(latest)
+        else:
+            self._results_panel.show_empty_state()
+        self._show_results()
+
+    def _on_history_cleared(self):
+        self._results_panel.show_empty_state()
+        self._config_panel.reset_for_new_session()
+        self._show_config()
 
     # ── Run simulation ─────────────────────────────────────────────────────
     def _on_run_requested(self, cfg: SimConfig):
@@ -360,9 +395,9 @@ def main():
     # Initialise DB
     init_db()
 
-    # Launch window fullscreen
+    # Launch maximized (keeps native minimize/maximize/close controls visible)
     window = MainWindow()
-    window.showFullScreen()
+    window.showMaximized()
 
     sys.exit(app.exec())
 
