@@ -12,8 +12,8 @@ from typing import Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QSizePolicy, QMenu, QInputDialog,
-    QMessageBox,
+    QScrollArea, QFrame, QSizePolicy, QMenu,
+    QMessageBox, QDialog, QCheckBox, QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QCursor
@@ -103,14 +103,17 @@ class RunCard(QWidget):
         top_row.addWidget(ts)
         text_col.addLayout(top_row)
 
-        # Trace filename
-        fname = run.get("trace_filename", "—")
-        file_lbl = QLabel(fname)
+        # Simulation label (reflects user rename)
+        sim_label = (run.get("label") or f"Run #{run['id']}").strip()
+        if len(sim_label) > 34:
+            sim_label = sim_label[:31] + "..."
+        file_lbl = QLabel(sim_label)
         file_lbl.setFont(QFont("Inter", FONT_SIZE["sm"], QFont.Weight.Medium))
         file_lbl.setStyleSheet(
             f"color: {COLOR['text_primary']}; background: transparent;"
         )
         file_lbl.setMaximumWidth(180)
+        file_lbl.setToolTip(run.get("label", ""))
         text_col.addWidget(file_lbl)
 
         # Trace summary
@@ -337,11 +340,12 @@ class HistoryPanel(QWidget):
         f_lay = QHBoxLayout(footer)
         f_lay.setContentsMargins(10, 0, 10, 0)
 
-        clear_btn = QPushButton("Clear history")
-        clear_btn.setObjectName("ghostBtn")
-        clear_btn.setFont(QFont("Inter", FONT_SIZE["xs"]))
-        clear_btn.clicked.connect(self._confirm_clear)
-        f_lay.addWidget(clear_btn)
+        delete_history_btn = QPushButton("Delete History")
+        delete_history_btn.setObjectName("ghostBtn")
+        delete_history_btn.setFont(QFont("Inter", FONT_SIZE["xs"]))
+        delete_history_btn.clicked.connect(self._open_delete_history_dialog)
+        f_lay.addStretch()
+        f_lay.addWidget(delete_history_btn)
         f_lay.addStretch()
         root.addWidget(footer)
 
@@ -432,49 +436,249 @@ class HistoryPanel(QWidget):
         self._pinned_id = None
         self._compare_banner.setVisible(False)
 
+    def _new_dialog(self, title: str, min_width: int, min_height: int = 0) -> QDialog:
+        dlg = QDialog(None)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(min_width)
+        if min_height > 0:
+            dlg.setMinimumHeight(min_height)
+        dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dlg.setWindowFlag(Qt.WindowType.Window, True)
+        dlg.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        dlg.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        dlg.setStyleSheet(
+            f"background-color: {COLOR['bg_card']};"
+            f"color: {COLOR['text_primary']};"
+        )
+        return dlg
+
+    def _show_text_input_dialog(self, title: str, prompt: str, initial: str = "") -> tuple[str, bool]:
+        dlg = self._new_dialog(title, 420)
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        lbl = QLabel(prompt)
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+
+        inp = QLineEdit(initial)
+        inp.setMinimumHeight(36)
+        lay.addWidget(inp)
+
+        row = QHBoxLayout()
+        row.addStretch()
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("ghostBtn")
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("ghostBtn")
+        row.addWidget(ok_btn)
+        row.addWidget(cancel_btn)
+        lay.addLayout(row)
+
+        ok_btn.clicked.connect(dlg.accept)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        inp.selectAll()
+        inp.setFocus()
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
+        return inp.text(), accepted
+
+    def _show_confirm_dialog(self, title: str, message: str, confirm_text: str = "Delete") -> bool:
+        dlg = self._new_dialog(title, 440)
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        msg = QLabel(message)
+        msg.setWordWrap(True)
+        lay.addWidget(msg)
+
+        row = QHBoxLayout()
+        row.addStretch()
+        yes_btn = QPushButton(confirm_text)
+        yes_btn.setObjectName("ghostBtn")
+        no_btn = QPushButton("Cancel")
+        no_btn.setObjectName("ghostBtn")
+        row.addWidget(yes_btn)
+        row.addWidget(no_btn)
+        lay.addLayout(row)
+
+        yes_btn.clicked.connect(dlg.accept)
+        no_btn.clicked.connect(dlg.reject)
+
+        return dlg.exec() == QDialog.DialogCode.Accepted
+
+    def _show_info_dialog(self, title: str, message: str):
+        dlg = self._new_dialog(title, 380)
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        msg = QLabel(message)
+        msg.setWordWrap(True)
+        lay.addWidget(msg)
+
+        row = QHBoxLayout()
+        row.addStretch()
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("ghostBtn")
+        row.addWidget(ok_btn)
+        lay.addLayout(row)
+
+        ok_btn.clicked.connect(dlg.accept)
+        dlg.exec()
+
     def _on_delete(self, run_id: int):
         run   = db.get_run_by_id(run_id)
         label = f"Run #{run_id}" if not run else run.get("label", f"Run #{run_id}")
-        reply = QMessageBox.question(
-            self, "Delete Run",
+        if not self._show_confirm_dialog(
+            "Delete Run",
             f"Delete {label}?\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            db.delete_run(run_id)
-            if self._selected_id == run_id:
-                self._selected_id = None
-            if self._pinned_id == run_id:
-                self._cancel_compare()
-            self.refresh()
+            "Delete",
+        ):
+            return
+
+        db.delete_run(run_id)
+        if self._selected_id == run_id:
+            self._selected_id = None
+        if self._pinned_id == run_id:
+            self._cancel_compare()
+        self.refresh()
 
     def _on_rename(self, run_id: int):
         run = db.get_run_by_id(run_id)
         if not run:
             return
-        new_name, ok = QInputDialog.getText(
-            self, "Rename Run", "New name:",
-            text=run.get("label", ""),
+        new_name, ok = self._show_text_input_dialog(
+            "Rename Run",
+            "New name:",
+            run.get("label", ""),
         )
         if ok and new_name.strip():
             db.rename_run(run_id, new_name.strip())
             self.refresh()
 
-    def _confirm_clear(self):
-        count = db.get_run_count()
-        if count == 0:
+    def _open_delete_history_dialog(self):
+        runs = db.get_all_runs(limit=500)
+        if not runs:
             return
-        reply = QMessageBox.question(
-            self, "Clear History",
-            f"Delete all {count} saved run{'s' if count != 1 else ''}?\nThis cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+
+        dlg = self._new_dialog("Delete History", 520, 420)
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        info = QLabel("Select simulations to delete, or delete the entire history.")
+        info.setWordWrap(True)
+        info.setFont(QFont("Inter", FONT_SIZE["sm"]))
+        info.setStyleSheet(f"color: {COLOR['text_secondary']}; background: transparent;")
+        lay.addWidget(info)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(
+            f"background-color: {COLOR['bg_elevated']};"
+            f"border: 1px solid {COLOR['border_dim']};"
+            f"border-radius: 8px;"
         )
-        if reply == QMessageBox.StandardButton.Yes:
+
+        list_host = QWidget()
+        list_lay = QVBoxLayout(list_host)
+        list_lay.setContentsMargins(10, 10, 10, 10)
+        list_lay.setSpacing(6)
+
+        check_items: list[tuple[QCheckBox, int]] = []
+        for run in runs:
+            run_id = int(run["id"])
+            run_label = run.get("label", f"Run #{run_id}")
+            text = (
+                f"{run_label}"
+                f"\n{run.get('trace_filename', '—')}  ·  {_rel_time(run.get('timestamp', ''))}"
+            )
+            cb = QCheckBox(text)
+            cb.setFont(QFont("Inter", FONT_SIZE["xs"]))
+            cb.setStyleSheet("padding: 5px 4px;")
+            check_items.append((cb, run_id))
+            list_lay.addWidget(cb)
+
+        list_lay.addStretch()
+        scroll.setWidget(list_host)
+        lay.addWidget(scroll, 1)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("ghostBtn")
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(cancel_btn)
+
+        btn_row.addStretch()
+
+        delete_selected_btn = QPushButton("Delete Selected")
+        delete_selected_btn.setObjectName("ghostBtn")
+        btn_row.addWidget(delete_selected_btn)
+
+        delete_all_btn = QPushButton("Delete History")
+        delete_all_btn.setObjectName("ghostBtn")
+        btn_row.addWidget(delete_all_btn)
+
+        lay.addLayout(btn_row)
+
+        def _delete_selected():
+            selected_ids = [rid for cb, rid in check_items if cb.isChecked()]
+            if not selected_ids:
+                self._show_info_dialog("Delete Selected", "Select at least one simulation.")
+                return
+
+            if not self._show_confirm_dialog(
+                "Delete Selected",
+                f"Delete {len(selected_ids)} selected simulation{'s' if len(selected_ids) != 1 else ''}?\nThis cannot be undone.",
+                "Delete Selected",
+            ):
+                return
+
+            for rid in selected_ids:
+                db.delete_run(rid)
+
+            if self._selected_id in selected_ids:
+                self._selected_id = None
+            if self._pinned_id in selected_ids:
+                self._cancel_compare()
+
+            self.refresh()
+            if db.get_run_count() == 0:
+                self.history_cleared.emit()
+            dlg.accept()
+
+        def _delete_all_history():
+            count = db.get_run_count()
+            if count <= 0:
+                dlg.accept()
+                return
+
+            if not self._show_confirm_dialog(
+                "Delete History",
+                f"Delete all {count} saved run{'s' if count != 1 else ''}?\nThis cannot be undone.",
+                "Delete History",
+            ):
+                return
+
             db.clear_all_runs()
             self._selected_id = None
             self._pinned_id   = None
             self._compare_banner.setVisible(False)
             self.refresh()
             self.history_cleared.emit()
+            dlg.accept()
+
+        delete_selected_btn.clicked.connect(_delete_selected)
+        delete_all_btn.clicked.connect(_delete_all_history)
+
+        dlg.exec()

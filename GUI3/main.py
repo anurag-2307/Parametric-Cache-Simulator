@@ -63,19 +63,19 @@ class TitleBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(48)
+        self.setFixedHeight(62)
         self.setStyleSheet(
             f"background-color: {COLOR['bg_base']};"
             f"border-bottom: 1px solid {COLOR['border_faint']};"
         )
 
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(20, 0, 20, 0)
-        lay.setSpacing(10)
+        lay.setContentsMargins(24, 0, 24, 0)
+        lay.setSpacing(12)
 
         # App icon dot (accent)
         dot = QLabel("◈")
-        dot.setFont(QFont("DM Sans", 14))
+        dot.setFont(QFont("DM Sans", 16))
         dot.setStyleSheet(f"color: {COLOR['accent']}; background: transparent;")
         lay.addWidget(dot)
 
@@ -87,7 +87,7 @@ class TitleBar(QWidget):
         lay.addWidget(title)
 
         self._status_dot = QLabel("●")
-        self._status_dot.setFont(QFont("DM Sans", 8))
+        self._status_dot.setFont(QFont("DM Sans", 10))
         self._status_dot.setStyleSheet(
             f"color: {COLOR['text_muted']}; background: transparent;"
         )
@@ -114,8 +114,8 @@ class TitleBar(QWidget):
         btn = QPushButton(text)
         btn.setFont(QFont("DM Sans", FONT_SIZE["xs"]))
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedHeight(32)
-        btn.setStyleSheet("padding: 0 12px;")
+        btn.setFixedHeight(38)
+        btn.setStyleSheet("padding: 0 14px;")
         self._set_pill_style(btn, active)
         return btn
 
@@ -238,6 +238,8 @@ class MainWindow(QMainWindow):
         # Results panel → back to config
         self._results_panel.new_simulation_requested.connect(self._show_config)
         self._results_panel.compare_runs_requested.connect(self._on_compare_requested)
+        self._results_panel.run_renamed.connect(self._on_run_renamed)
+        self._results_panel.run_deleted.connect(self._on_run_deleted)
 
         # Title bar pills
         self._title_bar.config_clicked.connect(self._show_config)
@@ -355,6 +357,28 @@ class MainWindow(QMainWindow):
     def _on_compare_requested(self, run_a: dict, run_b: dict):
         """User pinned + clicked two runs — show compare view."""
         self._results_panel.show_comparison(run_a, run_b)
+        self._show_results()
+
+    def _on_run_renamed(self, run: dict):
+        """Refresh history and keep the renamed run selected."""
+        if not run or not run.get("id"):
+            return
+        self._history_panel.set_current_run(run)
+
+    def _on_run_deleted(self, run_id: int):
+        """Handle deletion from Results panel and load next available run."""
+        import database as db
+
+        latest_runs = db.get_all_runs(limit=1)
+        if latest_runs:
+            latest = latest_runs[0]
+            self._history_panel.set_current_run(latest)
+            self._results_panel.show_result(latest)
+            self._show_results()
+            return
+
+        self._history_panel.refresh()
+        self._results_panel.show_empty_state()
         self._show_results()
 
 

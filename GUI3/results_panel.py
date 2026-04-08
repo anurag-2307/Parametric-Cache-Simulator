@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QTabWidget, QFrame,
     QScrollArea, QSizePolicy, QSpacerItem,
-    QDialog, QDialogButtonBox, QComboBox, QMessageBox,
+    QDialog, QDialogButtonBox, QComboBox, QMessageBox, QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QColor, QImage, QPixmap
@@ -254,6 +254,9 @@ def _make_canvas(fig: Figure) -> FigureCanvas:
 
 
 def _run_display_name(run: dict) -> str:
+    label = str(run.get("label", "")).strip()
+    if label:
+        return label
     return f"Run #{run.get('id', '?')}"
 
 
@@ -287,33 +290,36 @@ def _show_chart_preview(canvas: FigureCanvas, parent: QWidget):
     image = QImage(buf, w, h, QImage.Format.Format_RGBA8888)
     pixmap = QPixmap.fromImage(image)
 
-    dlg = QDialog(parent)
-    dlg.setWindowTitle("Chart Preview")
-    dlg.resize(1000, 620)
-    dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-    dlg.setWindowModality(Qt.WindowModality.NonModal)
-    dlg.setStyleSheet(
-        f"background-color: {COLOR['bg_deep']};"
-        f"color: {COLOR['text_primary']};"
-    )
+    host = parent.window() if parent is not None else parent
+    dlg = getattr(host, "_chart_preview_dialog", None)
+    lbl = getattr(host, "_chart_preview_label", None)
 
-    lay = QVBoxLayout(dlg)
-    lay.setContentsMargins(12, 12, 12, 12)
+    if dlg is None or lbl is None:
+        dlg = QDialog(None)
+        dlg.setWindowTitle("Chart Preview")
+        dlg.resize(1000, 620)
+        dlg.setWindowModality(Qt.WindowModality.NonModal)
+        dlg.setWindowFlag(Qt.WindowType.Window, True)
+        dlg.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
+        dlg.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        dlg.setStyleSheet(
+            f"background-color: {COLOR['bg_deep']};"
+            f"color: {COLOR['text_primary']};"
+        )
 
-    lbl = QLabel()
-    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(12, 12, 12, 12)
+
+        lbl = QLabel()
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setScaledContents(False)
+        lay.addWidget(lbl, 1)
+
+        setattr(host, "_chart_preview_dialog", dlg)
+        setattr(host, "_chart_preview_label", lbl)
+
     lbl.setPixmap(pixmap)
-    lbl.setScaledContents(False)
-    lay.addWidget(lbl, 1)
-
-    # Keep a reference so Python doesn't GC the non-modal dialog.
-    previews = getattr(parent, "_chart_previews", None)
-    if previews is None:
-        previews = []
-        setattr(parent, "_chart_previews", previews)
-    previews.append(dlg)
-    dlg.destroyed.connect(lambda *_: previews.remove(dlg) if dlg in previews else None)
-
+    dlg.showNormal()
     dlg.show()
     dlg.raise_()
     dlg.activateWindow()
@@ -854,7 +860,10 @@ class CompareTab(QWidget):
             f"L2:{run.get('l2_size', 0)//1048576 if run.get('l2_size', 0) >= 1048576 else run.get('l2_size', 0)}"
             f"M/{run.get('l2_assoc', '?')}w"
         )
-        name = _label(f"{_run_display_name(run)}  —  {cfg}", FONT_SIZE["sm"], COLOR["text_primary"], bold=True)
+        run_title = _run_display_name(run)
+        if not run.get("label"):
+            run_title = f"{run_title}  —  {cfg}"
+        name = _label(run_title, FONT_SIZE["sm"], COLOR["text_primary"], bold=True)
         name.setWordWrap(True)
         vlay.addWidget(name)
 
@@ -984,10 +993,13 @@ class ResultsPanel(QWidget):
     """
     new_simulation_requested = pyqtSignal()
     compare_runs_requested   = pyqtSignal(dict, dict)
+    run_renamed              = pyqtSignal(dict)
+    run_deleted              = pyqtSignal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._current_result: Optional[dict] = None
+        self._in_compare_mode = False
         self._build_ui()
 
     def _build_ui(self):
@@ -997,41 +1009,93 @@ class ResultsPanel(QWidget):
 
         # ── Top bar ────────────────────────────────────────────────────────
         top_bar = QWidget()
-        top_bar.setFixedHeight(56)
+        top_bar.setFixedHeight(94)
         top_bar.setStyleSheet(
             f"background-color: {COLOR['bg_base']};"
-            f"border-bottom: 1px solid {COLOR['border_faint']};"
+            f"border-bottom: none;"
         )
         tb_lay = QHBoxLayout(top_bar)
-        tb_lay.setContentsMargins(24, 0, 24, 0)
-        tb_lay.setSpacing(14)
+        tb_lay.setContentsMargins(24, 10, 24, 10)
+        tb_lay.setSpacing(0)
+
+        left_actions = QWidget()
+        left_actions.setFixedWidth(340)
+        la_lay = QHBoxLayout(left_actions)
+        la_lay.setContentsMargins(0, 0, 0, 0)
+        la_lay.setSpacing(12)
 
         back_btn = QPushButton("← New Simulation")
         back_btn.setObjectName("ghostBtn")
         back_btn.setFont(QFont("DM Sans", FONT_SIZE["sm"]))
-        back_btn.setFixedHeight(32)
+        back_btn.setFixedHeight(44)
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        back_btn.setStyleSheet(
+            f"border: none;"
+            f"background: transparent;"
+            f"padding: 0 12px;"
+            f"border-radius: 8px;"
+        )
         back_btn.clicked.connect(self.new_simulation_requested.emit)
-        tb_lay.addWidget(back_btn)
+        la_lay.addWidget(back_btn)
 
         self._compare_btn = QPushButton("Compare Runs")
         self._compare_btn.setObjectName("ghostBtn")
         self._compare_btn.setFont(QFont("DM Sans", FONT_SIZE["sm"]))
-        self._compare_btn.setFixedHeight(32)
+        self._compare_btn.setFixedHeight(44)
         self._compare_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._compare_btn.setStyleSheet(
+            f"border: none;"
+            f"background: transparent;"
+            f"padding: 0 12px;"
+            f"border-radius: 8px;"
+        )
         self._compare_btn.clicked.connect(self._open_compare_picker)
-        tb_lay.addWidget(self._compare_btn)
+        la_lay.addWidget(self._compare_btn)
+        la_lay.addStretch()
+
+        center_block = QWidget()
+        cb_lay = QVBoxLayout(center_block)
+        cb_lay.setContentsMargins(0, 0, 0, 0)
+        cb_lay.setSpacing(4)
 
         self._run_label = _label(
-            "Simulation Results", FONT_SIZE["md"],
-            COLOR["text_primary"], bold=True
+            "Simulation Results", FONT_SIZE["lg"],
+            COLOR["text_primary"], bold=True,
+            align=Qt.AlignmentFlag.AlignCenter
         )
-        tb_lay.addWidget(self._run_label)
-        tb_lay.addStretch()
+        self._run_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cb_lay.addWidget(self._run_label)
 
         self._trace_lbl = _label("", FONT_SIZE["xs"], COLOR["text_muted"])
-        self._trace_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        tb_lay.addWidget(self._trace_lbl)
+        self._trace_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cb_lay.addWidget(self._trace_lbl)
+
+        right_actions = QWidget()
+        right_actions.setFixedWidth(220)
+        ra_lay = QHBoxLayout(right_actions)
+        ra_lay.setContentsMargins(0, 0, 0, 0)
+        ra_lay.setSpacing(12)
+        ra_lay.addStretch()
+
+        self._rename_btn = QPushButton("Rename")
+        self._rename_btn.setObjectName("ghostBtn")
+        self._rename_btn.setFont(QFont("DM Sans", FONT_SIZE["sm"]))
+        self._rename_btn.setFixedHeight(44)
+        self._rename_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._rename_btn.setStyleSheet(
+            f"border: none;"
+            f"background: transparent;"
+            f"padding: 0 12px;"
+            f"border-radius: 8px;"
+        )
+        self._rename_btn.clicked.connect(self._rename_current_run)
+        ra_lay.addWidget(self._rename_btn)
+
+        tb_lay.addWidget(left_actions, 0, Qt.AlignmentFlag.AlignVCenter)
+        tb_lay.addStretch(1)
+        tb_lay.addWidget(center_block, 0, Qt.AlignmentFlag.AlignVCenter)
+        tb_lay.addStretch(1)
+        tb_lay.addWidget(right_actions, 0, Qt.AlignmentFlag.AlignVCenter)
 
         root.addWidget(top_bar)
 
@@ -1049,7 +1113,7 @@ class ResultsPanel(QWidget):
             f"  border-bottom: 2px solid transparent;"
             f"  padding: 10px 24px;"
             f"  font-family: 'DM Sans';"
-            f"  font-size: 12px;"
+            f"  font-size: 14px;"
             f"  font-weight: 500;"
             f"  margin-right: 2px;"
             f"}}"
@@ -1071,19 +1135,26 @@ class ResultsPanel(QWidget):
     # ── Public API ──────────────────────────────────────────────────────────
     def show_result(self, result: dict):
         """Load a single run's results into the panel."""
+        self._in_compare_mode = False
+        self._tabs.tabBar().setVisible(True)
         self._current_result = result
         self._run_label.setText(result.get("label", "Simulation Results"))
         self._trace_lbl.setText(
             f"📄 {result.get('trace_filename','—')}  ·  {result.get('trace_summary','')}"
         )
         self._sync_compare_button_state()
+        self._sync_run_action_buttons()
         self._populate_tabs(result)
 
     def show_comparison(self, run_a: dict, run_b: dict):
         """Load a side-by-side comparison of two runs."""
+        self._in_compare_mode = True
+        self._tabs.tabBar().setVisible(True)
+        self._current_result = None
         self._run_label.setText("Comparison View")
         self._trace_lbl.setText("")
         self._sync_compare_button_state()
+        self._sync_run_action_buttons()
         self._tabs.clear()
 
         self._tabs.addTab(CompareTab(run_a, run_b), "⚖  Compare")
@@ -1096,10 +1167,12 @@ class ResultsPanel(QWidget):
         self._tabs.addTab(VisualMetricsTab(result),   "📈  Visual Metrics")
 
     def show_empty_state(self):
+        self._in_compare_mode = False
         self._current_result = None
         self._run_label.setText("No Saved Runs")
         self._trace_lbl.setText("")
         self._sync_compare_button_state()
+        self._sync_run_action_buttons()
         self._tabs.clear()
 
         empty = QWidget()
@@ -1113,23 +1186,160 @@ class ResultsPanel(QWidget):
         msg.setStyleSheet(f"color: {COLOR['text_muted']}; background: transparent;")
         lay.addWidget(msg)
 
-        self._tabs.addTab(empty, "📊  Detailed Metrics")
+        self._tabs.addTab(empty, "")
+        self._tabs.tabBar().setVisible(False)
 
     def _sync_compare_button_state(self):
         self._compare_btn.setEnabled(db.get_run_count() >= 2)
+
+    def _sync_run_action_buttons(self):
+        enabled = self._current_result is not None and not self._in_compare_mode
+        self._rename_btn.setEnabled(enabled)
+
+    def _new_dialog(self, title: str, min_width: int, min_height: int = 0) -> QDialog:
+        dlg = QDialog(None)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(min_width)
+        if min_height > 0:
+            dlg.setMinimumHeight(min_height)
+        dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dlg.setWindowFlag(Qt.WindowType.Window, True)
+        dlg.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        dlg.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        dlg.setStyleSheet(
+            f"background-color: {COLOR['bg_card']};"
+            f"color: {COLOR['text_primary']};"
+        )
+        return dlg
+
+    def _show_info_dialog(self, title: str, message: str):
+        dlg = self._new_dialog(title, 400)
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        msg = QLabel(message)
+        msg.setWordWrap(True)
+        lay.addWidget(msg)
+
+        row = QHBoxLayout()
+        row.addStretch()
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("ghostBtn")
+        row.addWidget(ok_btn)
+        lay.addLayout(row)
+
+        ok_btn.clicked.connect(dlg.accept)
+        dlg.exec()
+
+    def _show_text_input_dialog(self, title: str, prompt: str, initial: str = "") -> tuple[str, bool]:
+        dlg = self._new_dialog(title, 420)
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        lbl = QLabel(prompt)
+        lbl.setWordWrap(True)
+        lay.addWidget(lbl)
+
+        inp = QLineEdit(initial)
+        inp.setMinimumHeight(36)
+        lay.addWidget(inp)
+
+        row = QHBoxLayout()
+        row.addStretch()
+        ok_btn = QPushButton("OK")
+        ok_btn.setObjectName("ghostBtn")
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("ghostBtn")
+        row.addWidget(ok_btn)
+        row.addWidget(cancel_btn)
+        lay.addLayout(row)
+
+        ok_btn.clicked.connect(dlg.accept)
+        cancel_btn.clicked.connect(dlg.reject)
+
+        inp.selectAll()
+        inp.setFocus()
+        accepted = dlg.exec() == QDialog.DialogCode.Accepted
+        return inp.text(), accepted
+
+    def _show_confirm_dialog(self, title: str, message: str, confirm_text: str = "Delete") -> bool:
+        dlg = self._new_dialog(title, 440)
+
+        lay = QVBoxLayout(dlg)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        msg = QLabel(message)
+        msg.setWordWrap(True)
+        lay.addWidget(msg)
+
+        row = QHBoxLayout()
+        row.addStretch()
+        yes_btn = QPushButton(confirm_text)
+        yes_btn.setObjectName("compareBtn")
+        no_btn = QPushButton("Cancel")
+        no_btn.setObjectName("ghostBtn")
+        row.addWidget(yes_btn)
+        row.addWidget(no_btn)
+        lay.addLayout(row)
+
+        yes_btn.clicked.connect(dlg.accept)
+        no_btn.clicked.connect(dlg.reject)
+
+        return dlg.exec() == QDialog.DialogCode.Accepted
+
+    def _rename_current_run(self):
+        if not self._current_result:
+            return
+        run_id = int(self._current_result.get("id", 0))
+        if run_id <= 0:
+            return
+
+        new_name, ok = self._show_text_input_dialog(
+            "Rename Simulation",
+            "New name:",
+            self._current_result.get("label", ""),
+        )
+        if not ok:
+            return
+
+        new_name = new_name.strip()
+        if not new_name:
+            return
+
+        if db.rename_run(run_id, new_name):
+            updated = db.get_run_by_id(run_id)
+            if updated:
+                self.show_result(updated)
+                self.run_renamed.emit(updated)
+
+    def _delete_current_run(self):
+        if not self._current_result:
+            return
+        run_id = int(self._current_result.get("id", 0))
+        if run_id <= 0:
+            return
+
+        label = self._current_result.get("label", f"Run #{run_id}")
+        if not self._show_confirm_dialog(
+            "Delete Simulation",
+            f"Delete {label}?\nThis cannot be undone.",
+            "Delete",
+        ):
+            return
+
+        if db.delete_run(run_id):
+            self.run_deleted.emit(run_id)
 
     def _open_compare_picker(self):
         runs = db.get_all_runs()
         if len(runs) < 2:
             return
 
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Compare Runs")
-        dlg.setMinimumWidth(360)
-        dlg.setStyleSheet(
-            f"background-color: {COLOR['bg_card']};"
-            f"color: {COLOR['text_primary']};"
-        )
+        dlg = self._new_dialog("Compare Runs", 360)
 
         lay = QVBoxLayout(dlg)
         lay.setContentsMargins(14, 14, 14, 14)
@@ -1146,7 +1356,7 @@ class ResultsPanel(QWidget):
         combo_b.setFont(QFont("Inter", FONT_SIZE["sm"]))
 
         for run in runs:
-            text = f"Run #{run['id']}  -  {run.get('trace_filename','—')}"
+            text = _run_display_name(run)
             combo_a.addItem(text, run["id"])
             combo_b.addItem(text, run["id"])
 
@@ -1171,13 +1381,13 @@ class ResultsPanel(QWidget):
         id_a = combo_a.currentData()
         id_b = combo_b.currentData()
         if id_a == id_b:
-            QMessageBox.warning(self, "Compare Runs", "Please choose two different runs.")
+            self._show_info_dialog("Compare Runs", "Please choose two different runs.")
             return
 
         run_a = db.get_run_by_id(int(id_a))
         run_b = db.get_run_by_id(int(id_b))
         if not run_a or not run_b:
-            QMessageBox.warning(self, "Compare Runs", "Unable to load selected runs.")
+            self._show_info_dialog("Compare Runs", "Unable to load selected runs.")
             return
 
         self.compare_runs_requested.emit(run_a, run_b)

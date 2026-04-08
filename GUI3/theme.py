@@ -53,14 +53,14 @@ FONT = {
 }
 
 FONT_SIZE = {
-    "xs":   11,
-    "sm":   12,
-    "base": 13,
-    "md":   14,
-    "lg":   16,
-    "xl":   18,
-    "2xl":  22,
-    "3xl":  28,
+    "xs":   14,
+    "sm":   15,
+    "base": 16,
+    "md":   17,
+    "lg":   19,
+    "xl":   22,
+    "2xl":  26,
+    "3xl":  32,
 }
 
 
@@ -72,7 +72,7 @@ QMainWindow, QWidget {{
     background-color: {c['bg_deep']};
     color: {c['text_primary']};
     font-family: 'Inter', 'Segoe UI', sans-serif;
-    font-size: 12px;
+    font-size: 15px;
 }}
 
 /* ── Scroll Bars ── */
@@ -108,7 +108,7 @@ QComboBox {{
     border: 1px solid {c['border_dim']};
     border-radius: 6px;
     padding: 8px 12px;
-    font-size: 12px;
+    font-size: 15px;
     min-height: 20px;
 }}
 QComboBox:hover {{ border-color: {c['border_mid']}; }}
@@ -148,7 +148,7 @@ QLineEdit {{
     border: 1px solid {c['border_dim']};
     border-radius: 6px;
     padding: 8px 12px;
-    font-size: 12px;
+    font-size: 15px;
 }}
 QLineEdit:hover {{ border-color: {c['border_mid']}; }}
 QLineEdit:focus {{ border-color: {c['accent']}; }}
@@ -160,7 +160,7 @@ QPushButton {{
     border: 1px solid {c['border_dim']};
     border-radius: 6px;
     padding: 8px 16px;
-    font-size: 12px;
+    font-size: 15px;
     font-weight: 500;
 }}
 QPushButton:hover {{
@@ -178,10 +178,10 @@ QPushButton:disabled {{
 QPushButton#primaryBtn {{
     background-color: {c['accent']};
     color: #FFFFFF;
-    border: none;
-    border-radius: 6px;
-    padding: 12px 32px;
-    font-size: 13px;
+    border: 1px solid {c['accent_dim']};
+    border-radius: 24px;
+    padding: 12px 36px;
+    font-size: 16px;
     font-weight: 600;
 }}
 QPushButton#primaryBtn:hover {{ background-color: #2563EB; }}
@@ -198,7 +198,7 @@ QPushButton#ghostBtn {{
     border: 1px solid {c['border_dim']};
     border-radius: 6px;
     padding: 7px 14px;
-    font-size: 11px;
+    font-size: 13px;
 }}
 QPushButton#ghostBtn:hover {{
     color: {c['text_primary']};
@@ -213,7 +213,7 @@ QPushButton#compareBtn {{
     border: 1px solid {c['accent_amber']};
     border-radius: 6px;
     padding: 5px 12px;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 500;
 }}
 QPushButton#compareBtn:hover {{
@@ -231,7 +231,7 @@ QTabBar::tab {{
     border: none;
     border-bottom: 2px solid transparent;
     padding: 10px 22px;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 500;
     margin-right: 2px;
 }}
@@ -261,7 +261,7 @@ QToolTip {{
     border: 1px solid {c['border_mid']};
     border-radius: 4px;
     padding: 5px 8px;
-    font-size: 11px;
+    font-size: 13px;
 }}
 
 /* ── List Widget ── */
@@ -293,7 +293,7 @@ QProgressBar::chunk {{
 QCheckBox {{
     color: {c['text_secondary']};
     spacing: 8px;
-    font-size: 11px;
+    font-size: 13px;
 }}
 QCheckBox::indicator {{
     width: 15px;
@@ -310,6 +310,28 @@ QCheckBox::indicator:checked {{
 /* ── Dialogs ── */
 QDialog, QMessageBox, QInputDialog {{
     background-color: {c['bg_card']};
+    border: 1px solid {c['border_mid']};
+}}
+QDialog QWidget, QMessageBox QWidget, QInputDialog QWidget {{
+    background-color: {c['bg_card']};
+    color: {c['text_primary']};
+}}
+QDialog QLabel, QMessageBox QLabel, QInputDialog QLabel {{
+    background-color: {c['bg_card']};
+    color: {c['text_primary']};
+}}
+QDialog QLineEdit, QInputDialog QLineEdit {{
+    background-color: {c['bg_elevated']};
+    border: 1px solid {c['border_dim']};
+    border-radius: 6px;
+    padding: 8px 10px;
+}}
+QDialog QPushButton, QMessageBox QPushButton, QInputDialog QPushButton {{
+    background-color: {c['bg_elevated']};
+    border: 1px solid {c['border_dim']};
+    border-radius: 6px;
+    padding: 6px 14px;
+    color: {c['text_primary']};
 }}
 """
 

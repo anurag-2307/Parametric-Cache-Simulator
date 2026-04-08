@@ -143,6 +143,12 @@ def _make_label(config: dict, run_number: int) -> str:
     return f"Run #{run_number}  —  {l1}  {l2}  {pol}  {pre}"
 
 
+def _reset_sequence_if_empty(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT COUNT(*) as cnt FROM runs").fetchone()
+    if row and row["cnt"] == 0:
+        conn.execute("DELETE FROM sqlite_sequence WHERE name = 'runs'")
+
+
 # ── Write ─────────────────────────────────────────────────────────────────────
 def save_run(
     trace_path:  str,
@@ -167,12 +173,6 @@ def save_run(
     summary  = compute_trace_summary(trace_path)
 
     with _connect() as conn:
-        # Determine next run number
-        row = conn.execute("SELECT COUNT(*) as cnt FROM runs").fetchone()
-        run_number = (row["cnt"] or 0) + 1
-
-        label = _make_label(config, run_number)
-
         cursor = conn.execute(
             """
             INSERT INTO runs
@@ -183,7 +183,7 @@ def save_run(
                 (?,?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?)
             """,
             (
-                ts, label, trace_path, filename, summary,
+                ts, "", trace_path, filename, summary,
                 config["l1_size"], config["l1_assoc"],
                 config["l2_size"], config["l2_assoc"],
                 config["policy"],  config["prefetch"],
@@ -191,8 +191,14 @@ def save_run(
                 json.dumps(metrics), duration_s, status,
             ),
         )
+
+        run_id = cursor.lastrowid
+        conn.execute(
+            "UPDATE runs SET label = ? WHERE id = ?",
+            (_make_label(config, int(run_id)), int(run_id)),
+        )
         conn.commit()
-        return cursor.lastrowid
+        return int(run_id)
 
 
 # ── Read ──────────────────────────────────────────────────────────────────────
@@ -245,6 +251,7 @@ def delete_run(run_id: int) -> bool:
     """Delete a run by id. Returns True if a row was deleted."""
     with _connect() as conn:
         cursor = conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+        _reset_sequence_if_empty(conn)
         conn.commit()
         return cursor.rowcount > 0
 

@@ -405,25 +405,27 @@ class ConfigPanel(QWidget):
             QSpacerItem(0, 12, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         )
 
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(14)
-        bottom_row.addStretch()
-
         self._status_lbl = QLabel("")
         self._status_lbl.setFont(QFont("Inter", FONT_SIZE["xs"]))
+        self._status_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._status_lbl.setStyleSheet(
             f"color: {COLOR['accent_red']}; background: transparent;"
         )
-        bottom_row.addWidget(self._status_lbl)
+        inner.addWidget(self._status_lbl)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(0)
+        bottom_row.addStretch()
 
         self._run_btn = QPushButton("Run Simulation")
         self._run_btn.setObjectName("primaryBtn")
         self._run_btn.setFont(QFont("Inter", FONT_SIZE["md"], QFont.Weight.Bold))
-        self._run_btn.setFixedHeight(48)
-        self._run_btn.setMinimumWidth(200)
+        self._run_btn.setFixedHeight(54)
+        self._run_btn.setMinimumWidth(250)
         self._run_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._run_btn.clicked.connect(self._on_run_clicked)
         bottom_row.addWidget(self._run_btn)
+        bottom_row.addStretch()
 
         inner.addLayout(bottom_row)
         root.addWidget(inner_widget)
