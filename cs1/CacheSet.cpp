@@ -11,59 +11,13 @@ CacheSet::CacheSet(uint64_t associativity)
 	ways.resize(associativity);
 } // end CacheSet constructor.
 
-//=================MODULARIZE access FUNCTION========================//
-/*AccessResult CacheSet::access(uint64_t tag, char type, int rplc, uint32_t size )
-{
-	AccessResult result = {false, false, 0}; // AccessResult object.
-	bool found = false;
-	int way_hit = -1;
-	int way_empty = -1;
-	uint64_t max_lru = 0;
-	uint64_t way_lru = 0;
-
-	for (uint64_t way = 0; way < associativity; way++)
-	{
-		if (ways[way].valid)
-		{
-			if (ways[way].tag == tag)
-			{
-				found = true;
-				way_hit = way;
-				break;
-			} // end ways[way].tag if
-			if (rplc == 1)
-			{
-				if (ways[way].lru_counter >= max_lru)
-				{
-					max_lru = ways[way].lru_counter;
-					way_lru = way; // remember which way is the oldest (to kick out later).
-				} // end max_lru if.
-			} // end rplc == 1 if
-		} // end ways[way].valid if
-		else
-		{
-			if (way_empty == -1)
-			{
-				way_empty = way;
-			} // end way_empty if
-		} // end else
-	} // end way for
-
-	int way_update = -1;
-
-	if (found)
-	{
-		result.is_hit = true;
-		way_update = way_hit;
-	} // end found if
-} // end access function
-
-*/
 AccessResult CacheSet::access(uint64_t tag, char type, int rplc){
 	AccessResult result = {false, false, 0};
 	
 	if( rplc == 1 ) result = access_fifo(tag, type, result);
 	else if( rplc == 2) result = access_lru(tag, type, result);
+	else if( rplc == 3) result = access_lfu(tag, type, result);
+	else if( rplc == 4) result = access_random(tag, type, result);
 	else{
 		std::cerr << "Incorrect Replacement Policy. Some glitch. Exiting program" << "\n";
 		exit(EXIT_FAILURE);
@@ -242,3 +196,168 @@ AccessResult CacheSet::access_lru(uint64_t tag, char type, AccessResult& result)
 
 	return result;
 } // end AccessResult access.
+
+//=====================LFU====================//
+AccessResult CacheSet::access_lfu(uint64_t tag, char type, AccessResult& result)
+{
+
+	bool found = false;
+	int way_hit = -1;
+	int way_empty = -1;
+	uint64_t min_lfu = UINT64_MAX; 
+	uint64_t way_lfu = 0;
+
+	for (uint64_t way = 0; way < associativity; way++)
+	{
+		//===============SEARCH=========================//
+		if (ways[way].valid)
+		{
+			if (ways[way].tag == tag)
+			{
+				found = true;
+				way_hit = way;
+				break; // if tag has been found.
+			} // end ways[way].tag if
+
+			if (ways[way].lfu_counter < min_lfu)
+			{
+				min_lfu = ways[way].lfu_counter;
+				way_lfu = way; // remember which way is the least frequently used.
+			} // end min_lfu if.
+
+		} // end ways[way].valid if
+		else
+		{
+			if (way_empty == -1)
+			{
+				way_empty = way;
+			} // end ways[way].empty.
+		} // end ways[way].valid else.
+		//==============================================//
+	} // end associativity for.
+
+	//=================ACTION=======================//
+	int way_update = -1;
+
+	if (found)
+	{
+		result.is_hit = true;
+		way_update = way_hit;
+	} // end found if
+	else
+	{
+		result.is_hit = false;
+
+		if (way_empty != -1)
+			way_update = way_empty;
+		else
+		{
+			way_update = way_lfu;
+
+			// remove the address out of the cache. Check if the address is valid AND is dirty.
+			if (ways[way_update].valid && ways[way_update].dirty)
+			{
+				result.evicted_dirty = true;
+				result.evicted_addr = ways[way_update].tag;
+			} // end valid and dirty if.
+            
+            ways[way_update].lfu_counter = 0; // Reset counter for the newly brought-in block
+		} // end way_empty else
+
+		ways[way_update].valid = true;
+		ways[way_update].tag = tag;
+	} // end found else
+	//==============================================//
+
+	//=================METADATA=======================//
+	if (type == 'S' || type == 'M')
+	{
+		ways[way_update].dirty = true;
+	} // end S/M if
+	else if (!found)
+	{
+		ways[way_update].dirty = false;
+	} // end else if !found
+
+	// Increment LFU counter for the accessed/brought-in block
+    ways[way_update].lfu_counter++;
+	//==============================================//
+
+	return result;
+} // end AccessResult access_lfu.
+
+
+//=====================RANDOM====================//
+AccessResult CacheSet::access_random(uint64_t tag, char type, AccessResult& result)
+{
+
+	bool found = false;
+	int way_hit = -1;
+	int way_empty = -1;
+
+	for (uint64_t way = 0; way < associativity; way++)
+	{
+		//===============SEARCH=========================//
+		if (ways[way].valid)
+		{
+			if (ways[way].tag == tag)
+			{
+				found = true;
+				way_hit = way;
+				break; // if tag has been found.
+			} // end ways[way].tag if
+		} // end ways[way].valid if
+		else
+		{
+			if (way_empty == -1)
+			{
+				way_empty = way;
+			} // end ways[way].empty.
+		} // end ways[way].valid else.
+		//==============================================//
+	} // end associativity for.
+
+	//=================ACTION=======================//
+	int way_update = -1;
+
+	if (found)
+	{
+		result.is_hit = true;
+		way_update = way_hit;
+	} // end found if
+	else
+	{
+		result.is_hit = false;
+
+		if (way_empty != -1)
+			way_update = way_empty;
+		else
+		{
+			way_update = rand() % associativity; // Pick a random way
+
+			// remove the address out of the cache. Check if the address is valid AND is dirty.
+			if (ways[way_update].valid && ways[way_update].dirty)
+			{
+				result.evicted_dirty = true;
+				result.evicted_addr = ways[way_update].tag;
+			} // end valid and dirty if.
+		} // end way_empty else
+
+		ways[way_update].valid = true;
+		ways[way_update].tag = tag;
+	} // end found else
+	//==============================================//
+
+	//=================METADATA=======================//
+	if (type == 'S' || type == 'M')
+	{
+		ways[way_update].dirty = true;
+	} // end S/M if
+	else if (!found)
+	{
+		ways[way_update].dirty = false;
+	} // end else if !found
+	//==============================================//
+
+	return result;
+} // end AccessResult access_random.

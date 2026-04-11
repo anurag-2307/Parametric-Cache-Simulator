@@ -283,7 +283,7 @@ class ConfigPanel(QWidget):
     }
 
     ASSOC_OPTIONS   = ["1", "2", "4", "8", "16", "32", "64"]
-    POLICY_OPTIONS  = ["LRU", "FIFO"]
+    POLICY_OPTIONS  = ["LRU", "FIFO", "LFU", "Random"]
     PREFETCH_OPTIONS= ["ON", "OFF"]
 
     def __init__(self, parent: Optional[QWidget] = None):

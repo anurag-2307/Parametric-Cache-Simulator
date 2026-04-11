@@ -100,7 +100,7 @@ class SettingsView(QWidget):
         # Other Settings
         grid.addWidget(QLabel("Replacement Policy:"), 2, 0)
         self.policy = QComboBox()
-        self.policy.addItems(["LRU", "FIFO"])
+        self.policy.addItems(["LRU", "FIFO", "LFU", "Random"])
         grid.addWidget(self.policy, 2, 1)
 
         grid.addWidget(QLabel("Prefetching:"), 2, 2)

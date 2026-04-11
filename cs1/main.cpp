@@ -67,8 +67,10 @@ int main(int argc, char** argv){
         }
         else if (arg == "--policy" && i + 1 < argc) {
        		std::string pol_val = argv[++i];
-            if (pol_val == "FIFO" || pol_val == "fifo") rplc = 1; // Assuming 1 is FIFO
-            else rplc = 2; // Assuming 2 is LRU
+            if (pol_val == "FIFO" || pol_val == "fifo") rplc = 1;
+            else if (pol_val == "LFU" || pol_val == "lfu") rplc = 3;
+            else if (pol_val == "RANDOM" || pol_val == "random" || pol_val == "Random") rplc = 4;
+            else rplc = 2; // Default to LRU 
         }
     }
 

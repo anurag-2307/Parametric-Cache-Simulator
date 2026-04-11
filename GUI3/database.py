@@ -7,6 +7,7 @@
 import sqlite3
 import json
 import os
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -52,6 +53,8 @@ CREATE TABLE IF NOT EXISTS runs (
 _CREATE_INDEX = """
 CREATE INDEX IF NOT EXISTS idx_runs_timestamp ON runs(timestamp DESC);
 """
+
+_AUTO_LABEL_RE = re.compile(r"^\s*Run\s*#\d+\s*[—-]\s*(.*)$")
 
 
 # ── Connection helper ─────────────────────────────────────────────────────────
@@ -143,6 +146,25 @@ def _make_label(config: dict, run_number: int) -> str:
     return f"Run #{run_number}  —  {l1}  {l2}  {pol}  {pre}"
 
 
+def _display_label(label: str, run_number: int) -> str:
+    """
+    Build a UI display label with dynamic run numbering.
+    Existing auto labels are normalized to the latest run_number.
+    """
+    raw = str(label or "").strip()
+    if not raw:
+        return f"Run #{run_number}"
+
+    m = _AUTO_LABEL_RE.match(raw)
+    if not m:
+        return raw
+
+    rest = m.group(1).strip()
+    if rest:
+        return f"Run #{run_number}  —  {rest}"
+    return f"Run #{run_number}"
+
+
 def _reset_sequence_if_empty(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT COUNT(*) as cnt FROM runs").fetchone()
     if row and row["cnt"] == 0:
@@ -209,7 +231,15 @@ def get_all_runs(limit: int = 200) -> list[dict]:
     """
     with _connect() as conn:
         rows = conn.execute(
-            "SELECT * FROM runs ORDER BY id DESC LIMIT ?", (limit,)
+            """
+            SELECT
+                runs.*,
+                (SELECT COUNT(*) FROM runs r2 WHERE r2.id <= runs.id) AS run_number
+            FROM runs
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
         ).fetchall()
 
     result = []
@@ -219,6 +249,8 @@ def get_all_runs(limit: int = 200) -> list[dict]:
             d["metrics"] = json.loads(d.pop("metrics_json", "{}"))
         except (json.JSONDecodeError, TypeError):
             d["metrics"] = {}
+        d["run_number"] = int(d.get("run_number", 0))
+        d["display_label"] = _display_label(d.get("label", ""), d["run_number"])
         result.append(d)
     return result
 
@@ -227,7 +259,14 @@ def get_run_by_id(run_id: int) -> Optional[dict]:
     """Fetch a single run by primary key. Returns None if not found."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT * FROM runs WHERE id = ?", (run_id,)
+            """
+            SELECT
+                runs.*,
+                (SELECT COUNT(*) FROM runs r2 WHERE r2.id <= runs.id) AS run_number
+            FROM runs
+            WHERE id = ?
+            """,
+            (run_id,),
         ).fetchone()
 
     if row is None:
@@ -238,6 +277,8 @@ def get_run_by_id(run_id: int) -> Optional[dict]:
         d["metrics"] = json.loads(d.pop("metrics_json", "{}"))
     except (json.JSONDecodeError, TypeError):
         d["metrics"] = {}
+    d["run_number"] = int(d.get("run_number", 0))
+    d["display_label"] = _display_label(d.get("label", ""), d["run_number"])
     return d
 
 

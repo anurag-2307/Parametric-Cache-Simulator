@@ -125,5 +125,7 @@ void	Cache::print_stats( ){
 	std::cout << "\nReplacement Policy used : ";
 	if		( replacement_policy == 1 ) std::cout << "FIFO" << "\n";
 	else if	( replacement_policy == 2 ) std::cout << "LRU" << "\n";
+	else if	( replacement_policy == 3 ) std::cout << "LFU" << "\n";
+	else if	( replacement_policy == 4 ) std::cout << "Random" << "\n";
 	std::cout << "====================================================================\n";
 }//end print_stats()

@@ -89,7 +89,8 @@ class RunCard(QWidget):
         top_row = QHBoxLayout()
         top_row.setSpacing(6)
 
-        run_num  = QLabel(f"Run #{run['id']}")
+        run_number = run.get("run_number", run.get("id", "?"))
+        run_num  = QLabel(f"Run #{run_number}")
         run_num.setFont(QFont("Inter", FONT_SIZE["xs"], QFont.Weight.Bold))
         run_num.setStyleSheet(
             f"color: {COLOR['text_secondary']}; background: transparent;"
@@ -104,7 +105,11 @@ class RunCard(QWidget):
         text_col.addLayout(top_row)
 
         # Simulation label (reflects user rename)
-        sim_label = (run.get("label") or f"Run #{run['id']}").strip()
+        sim_label = (
+            run.get("display_label")
+            or run.get("label")
+            or f"Run #{run_number}"
+        ).strip()
         if len(sim_label) > 34:
             sim_label = sim_label[:31] + "..."
         file_lbl = QLabel(sim_label)
@@ -113,7 +118,7 @@ class RunCard(QWidget):
             f"color: {COLOR['text_primary']}; background: transparent;"
         )
         file_lbl.setMaximumWidth(180)
-        file_lbl.setToolTip(run.get("label", ""))
+        file_lbl.setToolTip(run.get("display_label") or run.get("label", ""))
         text_col.addWidget(file_lbl)
 
         # Trace summary
@@ -430,6 +435,13 @@ class HistoryPanel(QWidget):
             self._cards[run_id].set_pinned(True)
         self._compare_banner.setVisible(True)
 
+    def _emit_selected_run_if_available(self):
+        if self._selected_id is None:
+            return
+        run = db.get_run_by_id(self._selected_id)
+        if run:
+            self.run_selected.emit(run)
+
     def _cancel_compare(self):
         if self._pinned_id and self._pinned_id in self._cards:
             self._cards[self._pinned_id].set_pinned(False)
@@ -534,7 +546,10 @@ class HistoryPanel(QWidget):
 
     def _on_delete(self, run_id: int):
         run   = db.get_run_by_id(run_id)
-        label = f"Run #{run_id}" if not run else run.get("label", f"Run #{run_id}")
+        if not run:
+            label = f"Run #{run_id}"
+        else:
+            label = run.get("display_label") or run.get("label") or f"Run #{run.get('run_number', run_id)}"
         if not self._show_confirm_dialog(
             "Delete Run",
             f"Delete {label}?\nThis cannot be undone.",
@@ -548,6 +563,7 @@ class HistoryPanel(QWidget):
         if self._pinned_id == run_id:
             self._cancel_compare()
         self.refresh()
+        self._emit_selected_run_if_available()
 
     def _on_rename(self, run_id: int):
         run = db.get_run_by_id(run_id)
@@ -561,6 +577,7 @@ class HistoryPanel(QWidget):
         if ok and new_name.strip():
             db.rename_run(run_id, new_name.strip())
             self.refresh()
+            self._emit_selected_run_if_available()
 
     def _open_delete_history_dialog(self):
         runs = db.get_all_runs(limit=500)
@@ -596,7 +613,7 @@ class HistoryPanel(QWidget):
         check_items: list[tuple[QCheckBox, int]] = []
         for run in runs:
             run_id = int(run["id"])
-            run_label = run.get("label", f"Run #{run_id}")
+            run_label = run.get("display_label") or run.get("label") or f"Run #{run.get('run_number', run_id)}"
             text = (
                 f"{run_label}"
                 f"\n{run.get('trace_filename', '—')}  ·  {_rel_time(run.get('timestamp', ''))}"
@@ -653,6 +670,7 @@ class HistoryPanel(QWidget):
                 self._cancel_compare()
 
             self.refresh()
+            self._emit_selected_run_if_available()
             if db.get_run_count() == 0:
                 self.history_cleared.emit()
             dlg.accept()

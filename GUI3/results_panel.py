@@ -254,10 +254,16 @@ def _make_canvas(fig: Figure) -> FigureCanvas:
 
 
 def _run_display_name(run: dict) -> str:
+    display_label = str(run.get("display_label", "")).strip()
+    if display_label:
+        return display_label
+
     label = str(run.get("label", "")).strip()
     if label:
         return label
-    return f"Run #{run.get('id', '?')}"
+
+    run_number = run.get("run_number", run.get("id", "?"))
+    return f"Run #{run_number}"
 
 
 def _attach_chart_interactions(canvas: FigureCanvas, parent: QWidget, scroll: QScrollArea | None = None):
@@ -290,36 +296,33 @@ def _show_chart_preview(canvas: FigureCanvas, parent: QWidget):
     image = QImage(buf, w, h, QImage.Format.Format_RGBA8888)
     pixmap = QPixmap.fromImage(image)
 
-    host = parent.window() if parent is not None else parent
-    dlg = getattr(host, "_chart_preview_dialog", None)
-    lbl = getattr(host, "_chart_preview_label", None)
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Chart Preview")
+    dlg.resize(1000, 620)
+    dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    dlg.setWindowModality(Qt.WindowModality.NonModal)
+    dlg.setStyleSheet(
+        f"background-color: {COLOR['bg_deep']};"
+        f"color: {COLOR['text_primary']};"
+    )
 
-    if dlg is None or lbl is None:
-        dlg = QDialog(None)
-        dlg.setWindowTitle("Chart Preview")
-        dlg.resize(1000, 620)
-        dlg.setWindowModality(Qt.WindowModality.NonModal)
-        dlg.setWindowFlag(Qt.WindowType.Window, True)
-        dlg.setWindowFlag(Qt.WindowType.WindowMinMaxButtonsHint, True)
-        dlg.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
-        dlg.setStyleSheet(
-            f"background-color: {COLOR['bg_deep']};"
-            f"color: {COLOR['text_primary']};"
-        )
+    lay = QVBoxLayout(dlg)
+    lay.setContentsMargins(12, 12, 12, 12)
 
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(12, 12, 12, 12)
-
-        lbl = QLabel()
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setScaledContents(False)
-        lay.addWidget(lbl, 1)
-
-        setattr(host, "_chart_preview_dialog", dlg)
-        setattr(host, "_chart_preview_label", lbl)
-
+    lbl = QLabel()
+    lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
     lbl.setPixmap(pixmap)
-    dlg.showNormal()
+    lbl.setScaledContents(False)
+    lay.addWidget(lbl, 1)
+
+    # Keep a reference so Python doesn't GC the non-modal dialog.
+    previews = getattr(parent, "_chart_previews", None)
+    if previews is None:
+        previews = []
+        setattr(parent, "_chart_previews", previews)
+    previews.append(dlg)
+    dlg.destroyed.connect(lambda *_: previews.remove(dlg) if dlg in previews else None)
+
     dlg.show()
     dlg.raise_()
     dlg.activateWindow()
@@ -598,8 +601,8 @@ def _compare_metric_chart(
     x     = np.arange(len(caches))
     width = 0.32
 
-    la = run_a.get("label", "Run A")[:22]
-    lb = run_b.get("label", "Run B")[:22]
+    la = _run_display_name(run_a)[:22]
+    lb = _run_display_name(run_b)[:22]
 
     ax.bar(x - width/2, vals_a, width, label=la, color=COLOR["accent"],       alpha=0.85, zorder=3)
     ax.bar(x + width/2, vals_b, width, label=lb, color=COLOR["accent_amber"], alpha=0.85, zorder=3)
@@ -1138,7 +1141,7 @@ class ResultsPanel(QWidget):
         self._in_compare_mode = False
         self._tabs.tabBar().setVisible(True)
         self._current_result = result
-        self._run_label.setText(result.get("label", "Simulation Results"))
+        self._run_label.setText(_run_display_name(result))
         self._trace_lbl.setText(
             f"📄 {result.get('trace_filename','—')}  ·  {result.get('trace_summary','')}"
         )
@@ -1165,6 +1168,7 @@ class ResultsPanel(QWidget):
         self._tabs.clear()
         self._tabs.addTab(DetailedMetricsTab(result), "📊  Detailed Metrics")
         self._tabs.addTab(VisualMetricsTab(result),   "📈  Visual Metrics")
+        self._tabs.setCurrentIndex(1)
 
     def show_empty_state(self):
         self._in_compare_mode = False
@@ -1323,7 +1327,7 @@ class ResultsPanel(QWidget):
         if run_id <= 0:
             return
 
-        label = self._current_result.get("label", f"Run #{run_id}")
+        label = _run_display_name(self._current_result)
         if not self._show_confirm_dialog(
             "Delete Simulation",
             f"Delete {label}?\nThis cannot be undone.",

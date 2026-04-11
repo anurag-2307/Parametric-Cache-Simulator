@@ -29,4 +29,8 @@ class CacheSet{
 		AccessResult	access_lru( uint64_t tag, char type, AccessResult& result );
 
 		AccessResult	access_fifo( uint64_t tag, char type, AccessResult& result );
+
+		AccessResult	access_lfu( uint64_t tag, char type, AccessResult& result );
+		
+		AccessResult	access_random( uint64_t tag, char type, AccessResult& result );
 };//end class CacheSet
