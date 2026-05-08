@@ -1,36 +1,42 @@
-Cycle-Accurate Parametric Cache Simulator
-A cycle-accurate, parameterizable cache simulator written from scratch in C++. This project models a multi-level memory hierarchy to analyze the impact of architectural constraints—such as associativity, capacity, replacement policies, and prefetching—on Average Memory Access Time (AMAT) across various workloads.
+# Cycle-Accurate Parametric Cache Simulator  
+A cycle-accurate, parameterizable cache simulator written from scratch in C++. This project models a multi-level memory hierarchy to analyze the impact of architectural constraints such as associativity, capacity, replacement policies, and prefetching on Average Memory Access Time (AMAT) across various workloads.
 
-Architectural Features
-Multi-Level Hierarchy: Configurable L1 (Split Instruction/Data) and L2 (Unified) caches.
+### Architectural Features
+**Multi-Level Hierarchy:** Configurable L1 (Split Instruction/Data) and L2 (Unified) caches.
 
-Parametric Design: Highly configurable cache sizing, block sizing, and n-way set associativity.
+**Parametric Design:** Highly configurable cache sizing, block sizing, and n-way set associativity.
 
-Replacement Policies: Implementation of LRU, FIFO, LFU, and Random eviction strategies.
+**Replacement Policies:** Implementation of LRU, FIFO, LFU, and Random eviction strategies.
 
-Hardware Prefetching: Toggleable next-line prefetching to analyze bandwidth-vs-latency trade-offs.
+**Hardware Prefetching:** Toggleable next-line prefetching to analyze bandwidth-vs-latency trade-offs.
 
-Design Space Exploration & Verification
+### Design Space Exploration & Verification 
 To rigorously verify the simulator and explore the design space, I developed an automated testbench using Python. These scripts sweep through thousands of configuration permutations (size, associativity, policies) against sequential, random, and strided memory traces. The output data is automatically parsed to evaluate AMAT, hit/miss rates, and bus traffic, mirroring standard VLSI verification flows.
 
-Usage
+### Usage
 Compilation
 Ensure you have a standard C++ compiler installed (e.g., GCC).
 
-Bash
-g++ src/*.cpp -o src/cs1op
+For Linux / Mac / WSL:  
+`g++ src/*.cpp -o src/cs1op`  
+  
+For Windows:  
+`g++ src/*.cpp -o src/cs1op.exe`  
+
 Running a Simulation
-You can run the executable directly via the command line to model specific hardware constraints.
+You can run the executable directly via the command line to model specific hardware constraints. 
 
-Bash
-./src/cs1op --l1-size 8192 --l1-assoc 4 --l2-size 1048576 --l2-assoc 8 --pref
-etch ON --policy LRU --trace ../trace_rd.txt
+Linux / Mac / WSL:  
+  `
+  ./src/cs1op --l1-size 8192 --l1-assoc 4 --l2-size 1048576 --l2-assoc 8 --prefetch ON --policy LRU --trace ./traces/trace_rd.txt
+`  
+Windows:  
+`.\src\cs1op.exe --l1-size 32768 --l1-assoc 8 --l2-size 1048576 --l2-assoc 16 --prefetch ON --policy LRU --trace traces\trace_sq.txt`  
 
-Sample Terminal Output:
-
-Plaintext
-
+**Sample Terminal Output:**
+```text
 ==================================================================
+
 Instruction Cache (I-Cache) :
 --- Cache Simulation Results : L1 cache ---
 Total Accesses : 2077327
@@ -45,9 +51,11 @@ AMAT           : 4.16651
 Split Accesses : 107303
 
 Replacement Policy used : LRU
+
 ====================================================================
 
 ==================================================================
+
 Data Cache (D-Cache) :
 --- Cache Simulation Results : L1 cache ---
 Total Accesses : 729824
@@ -62,9 +70,11 @@ AMAT           : 6.20789
 Split Accesses : 148
 
 Replacement Policy used : LRU
+
 ====================================================================
 
 ==================================================================
+
 Unified L2 Cache :
 --- Cache Simulation Results : L2 cache ---
 Total Accesses : 108465
@@ -79,32 +89,33 @@ AMAT           : 37.339
 Split Accesses : 0
 
 Replacement Policy used : LRU
+
 ====================================================================
 
 MODIFIED INSTURCTIONS : 10194
-
-Experimental Results & Key Findings
+```
+### Experimental Results & Key Findings
 The following conclusions were drawn from automated sweeps across various trace workloads.
 
-1. Capacity vs. Associativity Trade-offs
+**1. Capacity vs. Associativity Trade-offs**  
 Associativity acts as a direct counter to conflict misses, but provides diminishing returns after 4-way configurations.
 
-Strided Workloads: Moving from a Direct-Mapped (1-way) to a 2-way and 4-way cache causes the miss rate to plummet. An 8KB 4-way cache frequently outperforms a larger 16KB 1-way cache under strided access due to the mitigation of conflict misses.
+Moving from a Direct-Mapped (1-way) to a 2-way and 4-way cache causes the miss rate to plummet. An 8KB 4-way cache frequently outperforms a larger 16KB 1-way cache under strided access due to the mitigation of conflict misses.
 
-Random Workloads: Capacity is the dominating factor. When accesses are unpredictable, "Capacity Misses" bottleneck the system, and increasing associativity provides negligible benefit.
+Under random workloads, capacity is the dominating factor. When accesses are unpredictable, capacity Misses bottleneck the system, and increasing associativity provides negligible benefit.
 
 ![AMAT vs Associativity (Strided)](results/analyze_out_cache_sweep/damat_vs_assoc_trace_str.png)
 
-2. The Impact of Hardware Prefetching
+**2. The Impact of Hardware Prefetching**  
 A next-line prefetcher is highly workload-dependent and can act as a performance multiplier or a bandwidth bottleneck.
 
-The Bandwidth Penalty (Random): In chaotic workloads lacking spatial locality, prefetching actively degrades L1 hit rates (by evicting demand-paged lines for useless speculative data) and causes massive spikes in L2 overhead traffic.
+In chaotic workloads lacking spatial locality, prefetching actively degrades L1 hit rates (by evicting demand-paged lines for useless speculative data) and causes massive spikes in L2 overhead traffic.
 
-Latency Masking (Sequential/Strided): While prefetching might slightly lower the L1 hit rate in certain sequential boundaries, it drastically improves overall AMAT. The prefetcher overlaps memory latency, meaning that when an L1 miss does occur, the data is already en route from the L2, minimizing the miss penalty.
+While prefetching might slightly lower the L1 hit rate in certain sequential boundaries, it drastically improves overall AMAT. The prefetcher overlaps memory latency, meaning that when an L1 miss does occur, the data is already en route from the L2, minimizing the miss penalty.
 
 ![L2 Traffic vs Prefetch Heatmap](results/analyze_out_prefetch/l2access_delta_heatmap_trace_rd.png)
 
-3. Eviction Policy Efficiency
+**3. Eviction Policy Efficiency**  
 LRU (Least Recently Used): Yielded the lowest AMAT across all tested workloads. It quickly adapts to micro-localities, efficiently retaining active loop boundaries.
 
 LFU (Least Frequently Used): Suffers from severe "cache pollution." A memory block accessed rapidly in a short burst racks up a high frequency count and remains immune to eviction, while useful new data is kicked out.
