@@ -97,8 +97,6 @@ int main(int argc, char **argv)
     TraceParser parser;
     TraceRecord record;
 
-    std::ofstream short_trace("short_trace.txt");
-
     //==================CREATE CACHE OBJECTS=========================//
 
     Cache L2_cache(l2_size, blockSize, l2_assoc, nullptr, 2, L2_HIT_TIME, rplc);
