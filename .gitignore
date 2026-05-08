@@ -1,3 +1,7 @@
 *.txt
 .venv/
 
+#Compiled files
+*.exe
+cs1op
+*.o

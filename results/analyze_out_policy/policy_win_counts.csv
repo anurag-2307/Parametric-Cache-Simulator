@@ -1,0 +1,8 @@
+trace_file,best_policy,wins
+trace_rd,LRU,9
+trace_rd,LFU,2
+trace_rd,Random,1
+trace_sq,LRU,12
+trace_str,LRU,9
+trace_str,LFU,2
+trace_str,Random,1
